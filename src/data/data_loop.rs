@@ -1,10 +1,10 @@
 use std::thread::sleep;
-use std::time::{Duration, Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use fs_protobuf_rust::compiled::google::protobuf::Timestamp;
 use fs_protobuf_rust::compiled::mcfs::data;
 use fs_protobuf_rust::compiled::mcfs::device;
-use quick_protobuf::{deserialize_from_slice, serialize_into_vec};
+use quick_protobuf::{serialize_into_vec};
 use rand::{distributions::Uniform, Rng};
 use std::borrow::Cow;
 
@@ -47,7 +47,7 @@ fn data_message_formation() -> Vec<u8> {
 
 fn generate_node_data(offsets: Vec<u32>, data: Vec<f32>, node_id: u32) -> data::NodeData<'static> {
     let node = device::NodeIdentifier {
-        board_id: 10,
+        board_id: 1,
         channel: device::Channel::GPIO,
         node_id: node_id,
     };

@@ -1,11 +1,8 @@
-use fs_protobuf_rust::compiled::google::protobuf::Timestamp;
 use fs_protobuf_rust::compiled::mcfs::command;
 use fs_protobuf_rust::compiled::mcfs::core;
-use fs_protobuf_rust::compiled::mcfs::data;
 use fs_protobuf_rust::compiled::mcfs::device;
 use quick_protobuf::Error;
-use quick_protobuf::{deserialize_from_slice, serialize_into_vec};
-use std::borrow::Cow;
+use quick_protobuf::{deserialize_from_slice};
 use std::fs::File;
 
 use std::io::Write;
@@ -14,7 +11,7 @@ use std::net::UdpSocket;
 pub fn begin(socket: UdpSocket) {
     let mut buf = [0; 65536];
     loop {
-        let (num_bytes, _src_addr) = socket.recv_from(&mut buf).expect("no data received");
+        let (_num_bytes, _src_addr) = socket.recv_from(&mut buf).expect("no data received");
 
         let deserialized_result: Result<core::Message, Error> = deserialize_from_slice(&buf);
         println!("{:#?}", deserialized_result);
@@ -25,7 +22,7 @@ pub fn begin(socket: UdpSocket) {
                 core::mod_Message::OneOfcontent::status(..) => println!("Command"),
                 _ => println!("Other"),
             },
-            Err(error) => println!("Bad"),
+            Err(_error) => println!("Bad"),
         };
     }
 }
@@ -107,7 +104,7 @@ fn execute(command: command::Command) {
                 },
             }
         }
-        command::mod_Command::OneOfcommand::device_discovery(device_discovery_command) => {
+        command::mod_Command::OneOfcommand::device_discovery(_device_discovery_command) => {
             println!("Device discovery command");
         }
         _ => println!("Unknown command"),
