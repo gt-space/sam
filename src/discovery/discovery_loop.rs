@@ -3,10 +3,12 @@ use std::net::{Ipv4Addr, UdpSocket};
 use fs_protobuf_rust::compiled::mcfs::core;
 use fs_protobuf_rust::compiled::mcfs::device;
 use fs_protobuf_rust::compiled::mcfs::status;
+use fs_protobuf_rust::compiled::mcfs::command;
+use quick_protobuf::deserialize_from_slice;
 use quick_protobuf::{serialize_into_vec};
 
 pub fn begin() {
-    let mcast_group: Ipv4Addr = "224.0.0.1".parse().unwrap();
+    let mcast_group: Ipv4Addr = "224.0.0.3".parse().unwrap();
     let port: u16 = 6000;
     let any = "0.0.0.0".parse().unwrap();
 
@@ -39,8 +41,16 @@ pub fn begin() {
         match result {
             Ok((_size, src)) => {
                 // TODO: log discovery message
-                println!("Received discovery message from {}", src);
-                let _result = socket.send_to(&response_serialized, &(mcast_group, port));
+                if let Ok(core::Message {
+                    content: core::mod_Message::OneOfcontent::command(
+                        command::Command {
+                            command: command::mod_Command::OneOfcommand::device_discovery(..)
+                        }
+                    ),..}
+                ) = deserialize_from_slice(&buffer) {
+                    println!("Received discovery message from {}", src);
+                    let _result = socket.send_to(&response_serialized, &(mcast_group, port));
+                } 
             }
             Err(_e) => {
                 // TODO: log error

@@ -8,7 +8,8 @@ use std::fs::File;
 use std::io::Write;
 use std::net::UdpSocket;
 
-pub fn begin(socket: UdpSocket) {
+pub fn begin() {
+    let socket = UdpSocket::bind("0.0.0.0:8378").expect("Cannot bind to socket");
     let mut buf = [0; 65536];
     loop {
         let (_num_bytes, _src_addr) = socket.recv_from(&mut buf).expect("no data received");

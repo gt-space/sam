@@ -2,6 +2,7 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use fs_protobuf_rust::compiled::google::protobuf::Timestamp;
+use fs_protobuf_rust::compiled::mcfs::core;
 use fs_protobuf_rust::compiled::mcfs::data;
 use fs_protobuf_rust::compiled::mcfs::device;
 use quick_protobuf::{serialize_into_vec};
@@ -10,7 +11,8 @@ use std::borrow::Cow;
 
 use std::net::UdpSocket;
 
-pub fn begin(socket: UdpSocket, frequency: u64) {
+pub fn begin(frequency: u64) {
+    let socket = UdpSocket::bind(("0.0.0.0", 4573)).expect("Could not bind client socket");
     let interval = Duration::from_micros(1000000 / frequency);
     let mut next_time = Instant::now() + interval;
 
@@ -18,7 +20,7 @@ pub fn begin(socket: UdpSocket, frequency: u64) {
         let data_serialized = data_message_formation();
 
         socket
-            .send_to(&data_serialized, "192.168.6.1:24013")
+            .send_to(&data_serialized, ("224.0.0.7", 4573))
             .expect("couldn't send data");
 
         sleep(next_time - Instant::now());
@@ -41,7 +43,13 @@ fn data_message_formation() -> Vec<u8> {
         node_data: node_data,
     };
 
-    let data_serialized = serialize_into_vec(&data).expect("Cannot serialize `data`");
+    let data_message = core::Message {
+        timestamp: Some(Timestamp { seconds: 9, nanos: 100 }),
+        board_id: 1,
+        content: core::mod_Message::OneOfcontent::data(data)
+    };
+
+    let data_serialized = serialize_into_vec(&data_message).expect("Cannot serialize `data`");
     data_serialized
 }
 
