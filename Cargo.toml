@@ -8,4 +8,5 @@ edition = "2021"
 [dependencies]
 rand = "0.8.5"
 quick-protobuf = "0.8.0"
+spidev = "0.5.1"
 fs-protobuf-rust = { path = "fs-protobuf-rust" }
