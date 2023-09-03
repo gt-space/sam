@@ -28,24 +28,21 @@ fn main() {
     gpio::set_output("10");
     gpio::set_high("10");
 
-    //gpio::set_gpio("12");
     gpio::set_output("12");
     gpio::set_high("12");
 
-    // gpio::set_gpio("13");
     gpio::set_output("13");
     gpio::set_high("13");
 
-    // gpio::set_gpio("20");
     gpio::set_output("20");
     gpio::set_high("20");
 
     gpio::set_output("23");
     gpio::set_high("23");
 
-    // RTD
+    // CL
     gpio::set_output("30");
-    gpio::set_high("30");
+    gpio::set_low("30");
 
     // gpio::set_gpio("33");
     gpio::set_output("33");
@@ -67,16 +64,16 @@ fn main() {
     gpio::set_output("87");
     gpio::set_high("87");
 
+    // Differential
     gpio::set_output("112");
     gpio::set_high("112");
 
-    // gpio::set_gpio("7");
     gpio::set_output("7");
     gpio::set_high("7");
 
-    // gpio::set_gpio("5");
+    // RTD
     gpio::set_output("5");
-    gpio::set_low("5");
+    gpio::set_high("5");
 
     println!("Resetting ADC");
     reset_status(&mut spidev);
@@ -86,18 +83,23 @@ fn main() {
     thread::sleep(time::Duration::from_millis(1000));
 
     //test_read_regs_in_loop(&mut spidev);
-    //test_current_loop_init(&mut spidev);
-    //start_conversion(&mut spidev);
-    // loop {
-    //     test_read_individual(&mut spidev, 0x00);
-    // }
-
+    test_current_loop_init(&mut spidev);
+    start_conversion(&mut spidev);
     loop {
-        // test_read_all(&mut spidev);
-        // thread::sleep(time::Duration::from_millis(500));
-        test_current_loop_init(&mut spidev);
         thread::sleep(time::Duration::from_millis(500));
+        test_read_all(&mut spidev);
+        // read_regs(&mut spidev, 0, 17);
+        //test_read_individual(&mut spidev, 0x00);
     }
+
+    // loop {
+    //     // test_read_all(&mut spidev);
+    //     // thread::sleep(time::Duration::from_millis(500));
+    //     // test_current_loop_init(&mut spidev);
+    //     //read_regs(&mut spidev, 0, 17);
+    //     test_current_loop_init(&mut spidev);
+    //     thread::sleep(time::Duration::from_millis(500));
+    // }
 
 }
 
@@ -129,13 +131,13 @@ fn write_reg(spidev: &mut Spidev, reg: u8, data1: u8, data2: u8) {
 
 fn test_read_regs_in_loop(spidev: &mut Spidev) {
     //println!("Reading initial register states");
-    read_regs(spidev, 1, 17);
+    read_regs(spidev, 0, 17);
 }
 
 fn test_current_loop_init(spidev: &mut Spidev) {
     // Read initial registers
     println!("Reading initial register states");
-    read_regs(spidev, 1, 17);
+    read_regs(spidev, 0, 17);
 
     // delay for at least 4000*clock period
     println!("Delaying for 1 second");
@@ -145,7 +147,8 @@ fn test_current_loop_init(spidev: &mut Spidev) {
     println!("Writing to registers");
     write_reg(spidev, 0x03, 0x00, 0x00);
     write_reg(spidev, 0x04, 0x0E, 0x00);
-    write_reg(spidev, 0x08, 0x40, 0x00);
+    write_reg(spidev, 0x05, 0b00001010, 0x00);
+    write_reg(spidev, 0x08, 0b01000000, 0x00);
 
     // delay for at least 4000*clock period
     println!("Delaying for 1 second");
@@ -153,7 +156,7 @@ fn test_current_loop_init(spidev: &mut Spidev) {
 
     // Read registers
     println!("Reading new register states");
-    read_regs(spidev, 1, 17);
+    read_regs(spidev, 0, 17);
 }
 
 fn start_conversion(spidev: &mut Spidev) {
@@ -166,10 +169,10 @@ fn start_conversion(spidev: &mut Spidev) {
 }
 
 fn test_read_individual(spidev: &mut Spidev, reg: u8) {
-    write_reg(spidev, 0x02, reg, 0x0C);
-    thread::sleep(time::Duration::from_millis(10));
-    let mut tx_buf_rdata = [ 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
-    let mut rx_buf_rdata = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
+    write_reg(spidev, 0x02, reg | 0x0C, 0x00);
+    thread::sleep(time::Duration::from_millis(100));
+    let mut tx_buf_rdata = [ 0x12, 0x00, 0x00, 0x00, 0x00];
+    let mut rx_buf_rdata = [ 0x00, 0x00, 0x00, 0x00, 0x00];
     let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
     let _status = spidev.transfer(&mut transfer);
     let value: u16 = ((rx_buf_rdata[1] as u16) << 8) | (rx_buf_rdata[2] as u16);
@@ -179,11 +182,11 @@ fn test_read_individual(spidev: &mut Spidev, reg: u8) {
 
 fn test_read_all(spidev: &mut Spidev) {
     // current loop PT
-    test_read_individual(spidev, 0x05);
-    test_read_individual(spidev, 0x04);
-    test_read_individual(spidev, 0x03);
-    test_read_individual(spidev, 0x02);
-    test_read_individual(spidev, 0x01);
+    test_read_individual(spidev, 0x50);
+    test_read_individual(spidev, 0x40);
+    test_read_individual(spidev, 0x30);
+    test_read_individual(spidev, 0x20);
+    test_read_individual(spidev, 0x10);
     test_read_individual(spidev, 0x00);
     println!();
 }
