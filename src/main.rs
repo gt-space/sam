@@ -1,8 +1,11 @@
 use spidev::spidevioctl::SpidevTransfer;
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::{thread, time};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub mod gpio;
+pub mod adc;
 
 /* A large portion of the code here is lifted from example code from
     https://github.com/rust-embedded/rust-spidev/blob/master/examples/spidev-bidir.rs
@@ -25,119 +28,33 @@ fn main() {
         .build();
     spidev.configure(&options).unwrap();
 
-    gpio::set_output("10");
-    gpio::set_high("10");
+    let ref_spidev: Rc<RefCell<_>> = Rc::new(RefCell::new(spidev));
+    let mut adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone());
+    //let mut adc_diff = adc::ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone());
+    read_adc_test(&mut adc_cl);
+}
 
-    gpio::set_output("12");
-    gpio::set_high("12");
-
-    gpio::set_output("13");
-    gpio::set_high("13");
-
-    gpio::set_output("20");
-    gpio::set_high("20");
-
-    gpio::set_output("23");
-    gpio::set_high("23");
-
-    // CL
-    gpio::set_output("30");
-    gpio::set_low("30");
-
-    // gpio::set_gpio("33");
-    gpio::set_output("33");
-    gpio::set_high("33");
-
-    // gpio::set_gpio("36");
-    gpio::set_output("36");
-    gpio::set_high("36");
-
-    gpio::set_output("44");
-    gpio::set_high("44");
-
-    gpio::set_output("67");
-    gpio::set_high("67");
-
-    gpio::set_output("86");
-    gpio::set_high("86");
-
-    gpio::set_output("87");
-    gpio::set_high("87");
-
-    // Differential
-    gpio::set_output("112");
-    gpio::set_high("112");
-
-    gpio::set_output("7");
-    gpio::set_high("7");
-
-    // RTD
-    gpio::set_output("5");
-    gpio::set_high("5");
-
+fn read_adc_test(adc: &mut adc::ADC) {
+    adc.init_gpio();
     println!("Resetting ADC");
-    reset_status(&mut spidev);
+    adc.reset_status();
 
     // delay for at least 4000*clock period
     println!("Delaying for 1 second");
     thread::sleep(time::Duration::from_millis(1000));
 
-    //test_read_regs_in_loop(&mut spidev);
-    test_current_loop_init(&mut spidev);
-    start_conversion(&mut spidev);
+    test_measurement_init(adc);
+    adc.start_conversion();
     loop {
+        test_read_all(adc);
         thread::sleep(time::Duration::from_millis(500));
-        test_read_all(&mut spidev);
-        // read_regs(&mut spidev, 0, 17);
-        //test_read_individual(&mut spidev, 0x00);
     }
-
-    // loop {
-    //     // test_read_all(&mut spidev);
-    //     // thread::sleep(time::Duration::from_millis(500));
-    //     // test_current_loop_init(&mut spidev);
-    //     //read_regs(&mut spidev, 0, 17);
-    //     test_current_loop_init(&mut spidev);
-    //     thread::sleep(time::Duration::from_millis(500));
-    // }
-
 }
 
-fn reset_status(spidev: &mut Spidev) {
-    let tx_buf_reset = [0x06];
-    let mut transfer = SpidevTransfer::write(&tx_buf_reset);
-    let _status = spidev.transfer(&mut transfer);
-}
-
-fn read_regs(spidev: &mut Spidev, reg: u8, num_regs: u8) {
-    let mut tx_buf_readreg = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
-    let mut rx_buf_readreg = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
-    tx_buf_readreg[0] = 0x20 | reg;
-    tx_buf_readreg[1] = num_regs;
-    let mut transfer = SpidevTransfer::read_write(&mut tx_buf_readreg, &mut rx_buf_readreg);
-    let _status = spidev.transfer(&mut transfer);
-    println!("data: {:?}", rx_buf_readreg);
-}
-
-fn write_reg(spidev: &mut Spidev, reg: u8, data1: u8, data2: u8) {
-    let mut tx_buf_writereg = [ 0x40, 0x00, 0x00, 0x00 ];
-    let mut rx_buf_writereg = [ 0x40, 0x00, 0x00, 0x00 ];
-    tx_buf_writereg[0] = 0x40 | reg;
-    tx_buf_writereg[2] = data1;
-    tx_buf_writereg[3] = data2;
-    let mut transfer = SpidevTransfer::read_write(&mut tx_buf_writereg, &mut rx_buf_writereg);
-    let _status = spidev.transfer(&mut transfer);
-}
-
-fn test_read_regs_in_loop(spidev: &mut Spidev) {
-    //println!("Reading initial register states");
-    read_regs(spidev, 0, 17);
-}
-
-fn test_current_loop_init(spidev: &mut Spidev) {
+fn test_measurement_init(adc: &mut adc::ADC) {
     // Read initial registers
     println!("Reading initial register states");
-    read_regs(spidev, 0, 17);
+    adc.read_regs(0, 17);
 
     // delay for at least 4000*clock period
     println!("Delaying for 1 second");
@@ -145,10 +62,32 @@ fn test_current_loop_init(spidev: &mut Spidev) {
 
     // Write to registers
     println!("Writing to registers");
-    write_reg(spidev, 0x03, 0x00, 0x00);
-    write_reg(spidev, 0x04, 0x0E, 0x00);
-    write_reg(spidev, 0x05, 0b00001010, 0x00);
-    write_reg(spidev, 0x08, 0b01000000, 0x00);
+    match adc.measurement {
+        adc::Measurement::CurrentLoopPt | 
+        adc::Measurement::ValveCurrentFb |
+        adc::Measurement::ValveVoltageFb | 
+        adc::Measurement::Power => {
+            adc.write_reg(0x03, 0x00);
+            adc.write_reg(0x04, 0x0E);
+            adc.write_reg(0x08, 0x40);
+            adc.write_reg(0x05, 0x0A)
+        }
+
+        adc::Measurement::Rtd => {
+            adc.write_reg(0x03, 0x00);
+            adc.write_reg(0x04, 0x0E);
+            adc.write_reg(0x06, 0x47);
+            adc.write_reg(0x07, 0x50);
+        }
+
+        adc::Measurement::Tc1 | 
+        adc::Measurement::Tc2 | 
+        adc::Measurement::DiffSensors => {
+            adc.write_reg(0x03, 0x0D);
+            adc.write_reg(0x04, 0x0E);
+            adc.write_reg(0x05, 0x0A);
+        }
+    }
 
     // delay for at least 4000*clock period
     println!("Delaying for 1 second");
@@ -156,39 +95,70 @@ fn test_current_loop_init(spidev: &mut Spidev) {
 
     // Read registers
     println!("Reading new register states");
-    read_regs(spidev, 0, 17);
+    adc.read_regs(0, 17);
+    
 }
 
-fn start_conversion(spidev: &mut Spidev) {
-    let mut tx_buf_rdata = [ 0x08];
-    let mut rx_buf_rdata = [ 0x00];
-    let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
-    let _status = spidev.transfer(&mut transfer);
-    thread::sleep(time::Duration::from_millis(1000));
-    //println!("reg: {}, data: {:?}", reg, rx_buf_rdata);
-}
+fn test_read_all(adc: &mut adc::ADC) {
+    match adc.measurement {
+        adc::Measurement::CurrentLoopPt | 
+        adc::Measurement::ValveCurrentFb |
+        adc::Measurement::ValveVoltageFb | 
+        adc::Measurement::Power => {
+            adc.write_reg(0x02, 0x50 | 0x0C);
+            adc.test_read_individual();
+            adc.write_reg(0x02, 0x40 | 0x0C);
+            adc.test_read_individual();
+            adc.write_reg(0x02, 0x30 | 0x0C);
+            adc.test_read_individual();
+            adc.write_reg(0x02, 0x20 | 0x0C);
+            adc.test_read_individual();
+            adc.write_reg(0x02, 0x10 | 0x0C);
+            adc.test_read_individual();
+            adc.write_reg(0x02, 0x00 | 0x0C);
+            adc.test_read_individual();
+            println!();
+        }
 
-fn test_read_individual(spidev: &mut Spidev, reg: u8) {
-    write_reg(spidev, 0x02, reg | 0x0C, 0x00);
-    thread::sleep(time::Duration::from_millis(100));
-    let mut tx_buf_rdata = [ 0x12, 0x00, 0x00, 0x00, 0x00];
-    let mut rx_buf_rdata = [ 0x00, 0x00, 0x00, 0x00, 0x00];
-    let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
-    let _status = spidev.transfer(&mut transfer);
-    let value: u16 = ((rx_buf_rdata[1] as u16) << 8) | (rx_buf_rdata[2] as u16);
-    let value2: i16 = value as i16;
-    print!("{} ", value2);
-}
+        adc::Measurement::Rtd => {
+            adc.write_reg(0x02, 0x34); // INPMUX
+            adc.write_reg(0x05, 0x00); // Ref Control
+            adc.test_read_individual();     
 
-fn test_read_all(spidev: &mut Spidev) {
-    // current loop PT
-    test_read_individual(spidev, 0x50);
-    test_read_individual(spidev, 0x40);
-    test_read_individual(spidev, 0x30);
-    test_read_individual(spidev, 0x20);
-    test_read_individual(spidev, 0x10);
-    test_read_individual(spidev, 0x00);
-    println!();
+            adc.write_reg(0x02, 0x12); // INPMUX
+            adc.write_reg(0x05, 0x05); // Ref Control
+            adc.test_read_individual();
+            println!();
+
+        }
+
+        adc::Measurement::DiffSensors => {
+            // set INPMUX
+            adc.write_reg(0x02, 0x54);
+            adc.test_read_individual();
+            adc.write_reg(0x02, 0x32);
+            adc.test_read_individual();
+            adc.write_reg(0x02, 0x10);
+            adc.test_read_individual();
+            println!();
+        }
+
+        adc::Measurement::Tc1 |
+        adc::Measurement::Tc2 => {
+            adc.write_reg(0x02, 0x10 | 0x00); // INPMUX
+            adc.write_reg(0x08, 0x02); // VBIAS
+            adc.test_read_individual();
+        
+            adc.write_reg(0x02, 0x30 | 0x02); // INPMUX
+            adc.write_reg(0x08, 0x08); // VBIAS
+            adc.test_read_individual();
+
+            adc.write_reg(0x02, 0x50 | 0x04); // INPMUX
+            adc.write_reg(0x08, 0x20); // VBIAS
+            adc.test_read_individual();
+            println!();
+        }
+    }
 }
 
 
@@ -211,3 +181,7 @@ fn test_read_all(spidev: &mut Spidev) {
 //     discovery_loop.join().unwrap();
 //     panic!("Control loop terminated!");
 // }
+
+
+
+
