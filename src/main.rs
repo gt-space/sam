@@ -1,4 +1,4 @@
-use spidev::spidevioctl::SpidevTransfer;
+use command::command_loop::{open_valve, close_valve};
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::{thread, time};
 use std::cell::RefCell;
@@ -6,6 +6,7 @@ use std::rc::Rc;
 
 pub mod gpio;
 pub mod adc;
+pub mod command;
 
 /* A large portion of the code here is lifted from example code from
     https://github.com/rust-embedded/rust-spidev/blob/master/examples/spidev-bidir.rs
@@ -20,6 +21,10 @@ fn main() {
       For a primer on SPI modes of operation, look here:
       https://stackoverflow.com/questions/43155025/why-different-modes-are-provided-in-spi-communication
     */
+    //let mut spimode_flags = SpiModeFlags::from_bits(SpiModeFlags::SPI_NO_CS.bits() | SpiModeFlags::SPI_MODE_1.bits()).unwrap();
+    // spimode_flags.toggle(SpiModeFlags::SPI_MODE_1);
+    //spimode_flags.toggle(SpiModeFlags::SPI_NO_CS);
+
     let options = SpidevOptions::new()
         .bits_per_word(8)
         .max_speed_hz(100000)
@@ -29,9 +34,11 @@ fn main() {
     spidev.configure(&options).unwrap();
 
     let ref_spidev: Rc<RefCell<_>> = Rc::new(RefCell::new(spidev));
-    let mut adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone());
-    //let mut adc_diff = adc::ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone());
-    read_adc_test(&mut adc_cl);
+    let mut valvefd = adc::ADC::new(adc::Measurement::ValveVoltageFb, ref_spidev.clone());
+    read_adc_test(&mut valvefd);
+    // open_valve(1);
+    // thread::sleep(time::Duration::from_millis(1000));
+    // close_valve(1);
 }
 
 fn read_adc_test(adc: &mut adc::ADC) {
@@ -43,7 +50,7 @@ fn read_adc_test(adc: &mut adc::ADC) {
     println!("Delaying for 1 second");
     thread::sleep(time::Duration::from_millis(1000));
 
-    test_measurement_init(adc);
+    adc.init_regs();
     adc.start_conversion();
     loop {
         test_read_all(adc);
@@ -51,60 +58,13 @@ fn read_adc_test(adc: &mut adc::ADC) {
     }
 }
 
-fn test_measurement_init(adc: &mut adc::ADC) {
-    // Read initial registers
-    println!("Reading initial register states");
-    adc.read_regs(0, 17);
-
-    // delay for at least 4000*clock period
-    println!("Delaying for 1 second");
-    thread::sleep(time::Duration::from_millis(1000));
-
-    // Write to registers
-    println!("Writing to registers");
-    match adc.measurement {
-        adc::Measurement::CurrentLoopPt | 
-        adc::Measurement::ValveCurrentFb |
-        adc::Measurement::ValveVoltageFb | 
-        adc::Measurement::Power => {
-            adc.write_reg(0x03, 0x00);
-            adc.write_reg(0x04, 0x0E);
-            adc.write_reg(0x08, 0x40);
-            adc.write_reg(0x05, 0x0A)
-        }
-
-        adc::Measurement::Rtd => {
-            adc.write_reg(0x03, 0x00);
-            adc.write_reg(0x04, 0x0E);
-            adc.write_reg(0x06, 0x47);
-            adc.write_reg(0x07, 0x50);
-        }
-
-        adc::Measurement::Tc1 | 
-        adc::Measurement::Tc2 | 
-        adc::Measurement::DiffSensors => {
-            adc.write_reg(0x03, 0x0D);
-            adc.write_reg(0x04, 0x0E);
-            adc.write_reg(0x05, 0x0A);
-        }
-    }
-
-    // delay for at least 4000*clock period
-    println!("Delaying for 1 second");
-    thread::sleep(time::Duration::from_millis(1000));
-
-    // Read registers
-    println!("Reading new register states");
-    adc.read_regs(0, 17);
-    
-}
-
 fn test_read_all(adc: &mut adc::ADC) {
     match adc.measurement {
         adc::Measurement::CurrentLoopPt | 
         adc::Measurement::ValveCurrentFb |
         adc::Measurement::ValveVoltageFb | 
-        adc::Measurement::Power => {
+        adc::Measurement::VPower |
+        adc::Measurement::IPower => {
             adc.write_reg(0x02, 0x50 | 0x0C);
             adc.test_read_individual();
             adc.write_reg(0x02, 0x40 | 0x0C);

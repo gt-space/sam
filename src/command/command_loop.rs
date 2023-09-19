@@ -7,6 +7,8 @@ use std::fs::File;
 
 use std::io::Write;
 use std::net::UdpSocket;
+use crate::gpio;
+
 
 pub fn begin() {
     let socket = UdpSocket::bind("0.0.0.0:8378").expect("Cannot bind to socket");
@@ -108,6 +110,89 @@ fn execute(command: command::Command) {
         command::mod_Command::OneOfcommand::device_discovery(_device_discovery_command) => {
             println!("Device discovery command");
         }
+        command::mod_Command::OneOfcommand::click_valve(click_valve_command) => {
+            let valve = click_valve_command.valve.unwrap();
+            match click_valve_command.state {
+                device::ValveState::VALVE_OPEN => match valve.node_id {
+                    1 => {
+                        gpio::set_output("8");
+                        gpio::set_high("8");
+                    }
+                    2 => {
+                        gpio::set_output("80");
+                        gpio::set_high("80");
+                    }
+                    3 => {
+                        gpio::set_output("81");
+                        gpio::set_high("81");
+                    }
+                    4 => {
+                        gpio::set_output("89");
+                        gpio::set_high("89");
+                    }
+                    5 => {
+                        gpio::set_output("65");
+                        gpio::set_high("65");
+                    }
+                    6 => {
+                        gpio::set_output("46");
+                        gpio::set_high("46");
+                    }
+                    _ => println!("Error"),
+                },
+                device::ValveState::VALVE_CLOSED => match valve.node_id {
+                    1 => {
+                        gpio::set_output("8");
+                        gpio::set_low("8");
+                    }
+                    2 => {
+                        gpio::set_output("80");
+                        gpio::set_low("80");
+                    }
+                    3 => {
+                        gpio::set_output("81");
+                        gpio::set_low("81");
+                    }
+                    4 => {
+                        gpio::set_output("89");
+                        gpio::set_low("89");
+                    }
+                    5 => {
+                        gpio::set_output("65");
+                        gpio::set_low("65");
+                    }
+                    6 => {
+                        gpio::set_output("46");
+                        gpio::set_low("46");
+                    }
+                    _ => println!("Error"),
+                },
+                
+            }
+
+        }
         _ => println!("Unknown command"),
+
     }
+}
+
+// For testing only.
+pub fn open_valve(id: u32) {
+    let command = command::Command {
+        command: command::mod_Command::OneOfcommand::click_valve(
+            command::ClickValve { 
+                valve: (Some(device::NodeIdentifier {board_id: 10, channel: device::Channel::VALVE, node_id: id})), 
+                state: (device::ValveState::VALVE_OPEN)
+    })};
+    execute(command);
+}
+
+pub fn close_valve(id: u32) {
+    let command = command::Command {
+        command: command::mod_Command::OneOfcommand::click_valve(
+            command::ClickValve { 
+                valve: (Some(device::NodeIdentifier {board_id: 10, channel: device::Channel::VALVE, node_id: id})), 
+                state: (device::ValveState::VALVE_CLOSED)
+    })};
+    execute(command);
 }

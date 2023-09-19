@@ -11,7 +11,8 @@ pub enum Measurement {
     CurrentLoopPt,
     ValveCurrentFb,
     ValveVoltageFb,
-    Power,
+    VPower,
+    IPower,
     Tc1,
     Tc2,
     DiffSensors,
@@ -34,16 +35,17 @@ impl ADC {
 
     pub fn init_gpio(&mut self) {
         // let mut all_gpios = vec![5, 7, 10, 12, 13, 20, 23, 26, 30, 33, 36, 44, 67, 68, 86, 87, 112];
-        let mut all_gpios = vec![5, 7, 10, 12, 13, 20, 23, 26, 30, 33, 36, 44, 67, 68, 86, 87, 112];
+        let mut all_gpios = vec![5, 7, 10, 12, 13, 20, 23, 26, 30, 33, 36, 44, 67, 68, 75, 77, 79, 87, 112];
         let mut cs_gpios: HashMap<Measurement, usize> = HashMap::new();
         cs_gpios.insert(Measurement::CurrentLoopPt, 30);
         cs_gpios.insert(Measurement::ValveCurrentFb, 68);
         cs_gpios.insert(Measurement::ValveVoltageFb, 26);
-        cs_gpios.insert(Measurement::Power, 86);
-        cs_gpios.insert(Measurement::Tc1, 10);
+        cs_gpios.insert(Measurement::VPower, 77);
+        cs_gpios.insert(Measurement::IPower, 79);
+        cs_gpios.insert(Measurement::Tc1, 10); // this should be 10
         cs_gpios.insert(Measurement::Tc2, 20);
-        cs_gpios.insert(Measurement::DiffSensors, 112);
-        cs_gpios.insert(Measurement::Rtd, 5);
+        cs_gpios.insert(Measurement::DiffSensors, 112); // this should be 112
+        cs_gpios.insert(Measurement::Rtd, 75);
         
         // pull BeagleBone chip select pin for this ADC low 
         if let Some(my_cs) = cs_gpios.get(&self.measurement) {
@@ -61,6 +63,54 @@ impl ADC {
             gpio::set_output(gpio_str);
             gpio::set_high(gpio_str);
         }
+    }
+
+    pub fn init_regs(&mut self) {
+        // Read initial registers
+        println!("Reading initial register states");
+        self.read_regs(0, 17);
+
+        // delay for at least 4000*clock period
+        println!("Delaying for 1 second");
+        thread::sleep(time::Duration::from_millis(1000));
+
+        // Write to registers
+        println!("Writing to registers");
+        match self.measurement {
+            Measurement::CurrentLoopPt | 
+            Measurement::ValveCurrentFb |
+            Measurement::ValveVoltageFb | 
+            Measurement::VPower |
+            Measurement::IPower => {
+                self.write_reg(0x03, 0x00);
+                self.write_reg(0x04, 0x0E);
+                self.write_reg(0x08, 0x40);
+                self.write_reg(0x05, 0x0A)
+            }
+
+            Measurement::Rtd => {
+                self.write_reg(0x03, 0x00);
+                self.write_reg(0x04, 0x0E);
+                self.write_reg(0x06, 0x47);
+                self.write_reg(0x07, 0x50);
+            }
+
+            Measurement::Tc1 | 
+            Measurement::Tc2 | 
+            Measurement::DiffSensors => {
+                self.write_reg(0x03, 0x0D);
+                self.write_reg(0x04, 0x0E);
+                self.write_reg(0x05, 0x0A);
+            }
+        }
+
+        // delay for at least 4000*clock period
+        println!("Delaying for 1 second");
+        thread::sleep(time::Duration::from_millis(1000));
+
+        // Read registers
+        println!("Reading new register states");
+        self.read_regs(0, 17);
     }
     
     pub fn reset_status(&mut self) {
@@ -105,7 +155,29 @@ impl ADC {
         let _status = self.spidev.borrow_mut().transfer(&mut transfer);
         let value: u16 = ((rx_buf_rdata[1] as u16) << 8) | (rx_buf_rdata[2] as u16);
         let value2: i16 = value as i16;
+        //self.convert_raw_values(value2);
         let reading = ((value2 as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64));
+        print!("{} ", reading);
+    }
+
+    fn convert_raw_values(&mut self, value: i16) {
+        let mut reading = 0.0;
+
+        match self.measurement {
+            Measurement::CurrentLoopPt | 
+            Measurement::ValveCurrentFb |
+            Measurement::ValveVoltageFb | 
+            Measurement::VPower |
+            Measurement::IPower => {
+                reading = ((value as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64));
+            }
+            Measurement::Rtd => {
+            }
+            Measurement::DiffSensors => {
+            }
+            Measurement::Tc1 | Measurement::Tc2 => {
+            }
+        }
         print!("{} ", reading);
     }
     
