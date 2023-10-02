@@ -1,6 +1,6 @@
 use fs_protobuf_rust::compiled::mcfs::command;
 use fs_protobuf_rust::compiled::mcfs::core;
-use fs_protobuf_rust::compiled::mcfs::device;
+use fs_protobuf_rust::compiled::mcfs::board;
 use quick_protobuf::Error;
 use quick_protobuf::{deserialize_from_slice};
 use std::fs::File;
@@ -35,7 +35,7 @@ fn execute(command: command::Command) {
         command::mod_Command::OneOfcommand::set_led(set_led_command) => {
             let led = set_led_command.led.unwrap();
             match set_led_command.state {
-                device::LEDState::LED_ON => match led.node_id {
+                board::LEDState::LED_ON => match led.channel {
                     0 => {
                         let mut file: File = std::fs::OpenOptions::new()
                             .write(true)
@@ -70,7 +70,7 @@ fn execute(command: command::Command) {
                     }
                     _ => println!("Error"),
                 },
-                device::LEDState::LED_OFF => match led.node_id {
+                board::LEDState::LED_OFF => match led.channel {
                     0 => {
                         let mut file: File = std::fs::OpenOptions::new()
                             .write(true)
@@ -107,13 +107,11 @@ fn execute(command: command::Command) {
                 },
             }
         }
-        command::mod_Command::OneOfcommand::device_discovery(_device_discovery_command) => {
-            println!("Device discovery command");
-        }
+
         command::mod_Command::OneOfcommand::click_valve(click_valve_command) => {
             let valve = click_valve_command.valve.unwrap();
             match click_valve_command.state {
-                device::ValveState::VALVE_OPEN => match valve.node_id {
+                board::ValveState::VALVE_OPEN => match valve.channel {
                     1 => {
                         gpio::set_output("8");
                         gpio::set_high("8");
@@ -140,7 +138,7 @@ fn execute(command: command::Command) {
                     }
                     _ => println!("Error"),
                 },
-                device::ValveState::VALVE_CLOSED => match valve.node_id {
+                board::ValveState::VALVE_CLOSED => match valve.channel {
                     1 => {
                         gpio::set_output("8");
                         gpio::set_low("8");
@@ -181,8 +179,8 @@ pub fn open_valve(id: u32) {
     let command = command::Command {
         command: command::mod_Command::OneOfcommand::click_valve(
             command::ClickValve { 
-                valve: (Some(device::NodeIdentifier {board_id: 10, channel: device::Channel::VALVE, node_id: id})), 
-                state: (device::ValveState::VALVE_OPEN)
+                valve: (Some(board::ChannelIdentifier {board_id: 10, channel_type: board::ChannelType::VALVE, channel: id})), 
+                state: (board::ValveState::VALVE_OPEN)
     })};
     execute(command);
 }
@@ -191,8 +189,8 @@ pub fn close_valve(id: u32) {
     let command = command::Command {
         command: command::mod_Command::OneOfcommand::click_valve(
             command::ClickValve { 
-                valve: (Some(device::NodeIdentifier {board_id: 10, channel: device::Channel::VALVE, node_id: id})), 
-                state: (device::ValveState::VALVE_CLOSED)
+                valve: (Some(board::ChannelIdentifier {board_id: 10, channel_type: board::ChannelType::VALVE, channel: id})), 
+                state: (board::ValveState::VALVE_CLOSED)
     })};
     execute(command);
 }

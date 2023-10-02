@@ -9,4 +9,5 @@ edition = "2021"
 rand = "0.8.5"
 quick-protobuf = "0.8.0"
 spidev = "0.5.1"
-fs-protobuf-rust = { path = "fs-protobuf-rust" }
+dns-lookup = "2.0.2"
+fs-protobuf-rust = { git = "ssh://git@github-research.gatech.edu/YJSP/fs-protobuf-rust" }

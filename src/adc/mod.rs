@@ -1,6 +1,8 @@
 use spidev::spidevioctl::SpidevTransfer;
 use spidev::Spidev;
 use std::{thread, time};
+use crate::data::data_loop::data_message_formation;
+
 use super::gpio;
 use std::collections::HashMap;
 use std::cell::RefCell;
@@ -9,8 +11,8 @@ use std::rc::Rc;
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum Measurement {
     CurrentLoopPt,
-    ValveCurrentFb,
-    ValveVoltageFb,
+    VValve,
+    IValve,
     VPower,
     IPower,
     Tc1,
@@ -38,8 +40,8 @@ impl ADC {
         let mut all_gpios = vec![5, 7, 10, 12, 13, 20, 23, 26, 30, 33, 36, 44, 67, 68, 75, 77, 79, 87, 112];
         let mut cs_gpios: HashMap<Measurement, usize> = HashMap::new();
         cs_gpios.insert(Measurement::CurrentLoopPt, 30);
-        cs_gpios.insert(Measurement::ValveCurrentFb, 68);
-        cs_gpios.insert(Measurement::ValveVoltageFb, 26);
+        cs_gpios.insert(Measurement::IValve, 68);
+        cs_gpios.insert(Measurement::VValve, 26);
         cs_gpios.insert(Measurement::VPower, 77);
         cs_gpios.insert(Measurement::IPower, 79);
         cs_gpios.insert(Measurement::Tc1, 10); // this should be 10
@@ -78,8 +80,8 @@ impl ADC {
         println!("Writing to registers");
         match self.measurement {
             Measurement::CurrentLoopPt | 
-            Measurement::ValveCurrentFb |
-            Measurement::ValveVoltageFb | 
+            Measurement::IValve |
+            Measurement::VValve | 
             Measurement::VPower |
             Measurement::IPower => {
                 self.write_reg(0x03, 0x00);
@@ -147,17 +149,86 @@ impl ADC {
         let _status = self.spidev.borrow_mut().transfer(&mut transfer);
     }
 
-    pub fn test_read_individual(&mut self) {
+    pub fn test_read_all(&mut self) -> Vec<u8> {
+        let mut measurements: Vec<f64> = Vec::new();
+        match self.measurement {
+            Measurement::CurrentLoopPt | 
+            Measurement::IValve |
+            Measurement::VValve | 
+            Measurement::VPower |
+            Measurement::IPower => {
+                self.write_reg(0x02, 0x50 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                self.write_reg(0x02, 0x40 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                self.write_reg(0x02, 0x30 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                self.write_reg(0x02, 0x20 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                self.write_reg(0x02, 0x10 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                self.write_reg(0x02, 0x00 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                println!();
+                return data_message_formation(measurements);
+            }
+    
+            Measurement::Rtd => {
+                self.write_reg(0x02, 0x34); // INPMUX
+                self.write_reg(0x05, 0x00); // Ref Control
+                measurements.push(self.test_read_individual());     
+    
+                self.write_reg(0x02, 0x12); // INPMUX
+                self.write_reg(0x05, 0x05); // Ref Control
+                println!();
+                measurements.push(self.test_read_individual());
+                return data_message_formation(measurements);
+    
+            }
+    
+            Measurement::DiffSensors => {
+                // set INPMUX
+                self.write_reg(0x02, 0x54);
+                measurements.push(self.test_read_individual());
+                self.write_reg(0x02, 0x32);
+                measurements.push(self.test_read_individual());
+                self.write_reg(0x02, 0x10);
+                measurements.push(self.test_read_individual());
+                println!();
+                return data_message_formation(measurements);
+            }
+    
+            Measurement::Tc1 |
+            Measurement::Tc2 => {
+                self.write_reg(0x02, 0x10 | 0x00); // INPMUX
+                self.write_reg(0x08, 0x02); // VBIAS
+                measurements.push(self.test_read_individual());
+            
+                self.write_reg(0x02, 0x30 | 0x02); // INPMUX
+                self.write_reg(0x08, 0x08); // VBIAS
+                measurements.push(self.test_read_individual());
+    
+                self.write_reg(0x02, 0x50 | 0x04); // INPMUX
+                self.write_reg(0x08, 0x20); // VBIAS
+                measurements.push(self.test_read_individual());
+                println!();
+                return data_message_formation(measurements);
+            }
+        }
+    }
+
+    pub fn test_read_individual(&mut self) -> f64 {
         thread::sleep(time::Duration::from_millis(10));
         let mut tx_buf_rdata = [ 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
         let mut rx_buf_rdata = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
         let _status = self.spidev.borrow_mut().transfer(&mut transfer);
         let value: u16 = ((rx_buf_rdata[1] as u16) << 8) | (rx_buf_rdata[2] as u16);
-        let value2: i16 = value as i16;
+        let value2: f64 = value as f64;
         //self.convert_raw_values(value2);
-        let reading = ((value2 as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64));
-        print!("{} ", reading);
+        //let reading = ((value2 as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64));
+        print!("{} ", value2);
+        value2
     }
 
     fn convert_raw_values(&mut self, value: i16) {
@@ -165,8 +236,8 @@ impl ADC {
 
         match self.measurement {
             Measurement::CurrentLoopPt | 
-            Measurement::ValveCurrentFb |
-            Measurement::ValveVoltageFb | 
+            Measurement::IValve |
+            Measurement::VValve | 
             Measurement::VPower |
             Measurement::IPower => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64));
