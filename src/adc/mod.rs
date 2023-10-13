@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[derive(Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub enum Measurement {
     CurrentLoopPt,
     VValve,
@@ -157,20 +157,20 @@ impl ADC {
             Measurement::VValve | 
             Measurement::VPower |
             Measurement::IPower => {
-                self.write_reg(0x02, 0x50 | 0x0C);
-                measurements.push(self.test_read_individual().try_into().unwrap());
-                self.write_reg(0x02, 0x40 | 0x0C);
-                measurements.push(self.test_read_individual().try_into().unwrap());
-                self.write_reg(0x02, 0x30 | 0x0C);
-                measurements.push(self.test_read_individual().try_into().unwrap());
-                self.write_reg(0x02, 0x20 | 0x0C);
+                self.write_reg(0x02, 0x00 | 0x0C);
                 measurements.push(self.test_read_individual().try_into().unwrap());
                 self.write_reg(0x02, 0x10 | 0x0C);
                 measurements.push(self.test_read_individual().try_into().unwrap());
-                self.write_reg(0x02, 0x00 | 0x0C);
+                self.write_reg(0x02, 0x20 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                self.write_reg(0x02, 0x30 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                self.write_reg(0x02, 0x40 | 0x0C);
+                measurements.push(self.test_read_individual().try_into().unwrap());
+                self.write_reg(0x02, 0x50 | 0x0C);
                 measurements.push(self.test_read_individual().try_into().unwrap());
                 println!();
-                return data_message_formation(measurements);
+                return data_message_formation(self.measurement.clone(), measurements);
             }
     
             Measurement::Rtd => {
@@ -182,7 +182,7 @@ impl ADC {
                 self.write_reg(0x05, 0x05); // Ref Control
                 println!();
                 measurements.push(self.test_read_individual());
-                return data_message_formation(measurements);
+                return data_message_formation(self.measurement.clone(), measurements);
     
             }
     
@@ -195,7 +195,7 @@ impl ADC {
                 self.write_reg(0x02, 0x10);
                 measurements.push(self.test_read_individual());
                 println!();
-                return data_message_formation(measurements);
+                return data_message_formation(self.measurement.clone(), measurements);
             }
     
             Measurement::Tc1 |
@@ -212,23 +212,26 @@ impl ADC {
                 self.write_reg(0x08, 0x20); // VBIAS
                 measurements.push(self.test_read_individual());
                 println!();
-                return data_message_formation(measurements);
+                return data_message_formation(self.measurement.clone(), measurements);
             }
         }
     }
 
     pub fn test_read_individual(&mut self) -> f64 {
-        thread::sleep(time::Duration::from_millis(10));
+        thread::sleep(time::Duration::from_millis(1));
         let mut tx_buf_rdata = [ 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
         let mut rx_buf_rdata = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
         let _status = self.spidev.borrow_mut().transfer(&mut transfer);
-        let value: u16 = ((rx_buf_rdata[1] as u16) << 8) | (rx_buf_rdata[2] as u16);
+        let value: i16 = ((rx_buf_rdata[1] as i16) << 8) | (rx_buf_rdata[2] as i16);
         let value2: f64 = value as f64;
         //self.convert_raw_values(value2);
-        //let reading = ((value2 as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64));
-        print!("{} ", value2);
-        value2
+        let mut reading = value2;
+        if self.measurement == Measurement::CurrentLoopPt {
+            reading = ((value as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64));
+        }
+        print!("{} ", reading);
+        reading
     }
 
     fn convert_raw_values(&mut self, value: i16) {

@@ -1,7 +1,9 @@
 use ::core::time;
-use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, io::{Read, self}, thread::{self, sleep}, time::{Instant, Duration}};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, thread::{self, sleep}, time::{Instant, Duration}};
 use quick_protobuf::{deserialize_from_slice, Error};
-
+use spidev::{SpiModeFlags, Spidev, SpidevOptions};
+use std::cell::RefCell;
+use std::rc::Rc;
 use crate::{discovery::get_ips, adc};
 
 use fs_protobuf_rust::compiled::mcfs::core;
@@ -13,17 +15,17 @@ pub struct Data {
     ip_addresses: HashMap<String, Option<IpAddr>>,
     pub data_socket: UdpSocket,
     flight_computer: Option<SocketAddr>,
-    adc: adc::ADC,
+    adc: Option<adc::ADC>,
     state_num: u32,
 }
 
 impl Data {
-    pub fn new(mut adc: adc::ADC) -> Data {
+    pub fn new() -> Data {
         Data {
             ip_addresses: HashMap::new(),
             data_socket: UdpSocket::bind(("0.0.0.0", 4573)).expect("Could not bind client socket"),
             flight_computer: None,
-            adc: adc,
+            adc: None,
             state_num: 0,
         }
     }
@@ -40,12 +42,30 @@ pub enum State {
 
 impl State {
     pub fn next(self, data: &mut Data) -> State {
-
-        println!("{:?} {}", self, data.state_num);
+        if data.state_num % 100000 == 0 {
+            println!("{:?} {}", self, data.state_num);
+        }
         data.state_num += 1;
 
         match self {
             State::Init => {
+                /* Create a spidev wrapper to work with
+                you call this wrapper to handle and all transfers */
+                let mut spidev = Spidev::open("/dev/spidev0.0").unwrap();
+
+                let options = SpidevOptions::new()
+                    .bits_per_word(8)
+                    .max_speed_hz(100000)
+                    .lsb_first(false)
+                    .mode(SpiModeFlags::SPI_MODE_1)
+                    .build();
+                spidev.configure(&options).unwrap();
+
+                let ref_spidev: Rc<RefCell<_>> = Rc::new(RefCell::new(spidev));
+                let adc_differential = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone());
+                data.adc = Some(adc_differential);
+                data.data_socket.set_nonblocking(true).expect("set_nonblocking call failed");
+
                 State::DeviceDiscovery
             }
 
@@ -75,27 +95,22 @@ impl State {
             }
 
             State::InitADC => {
-                data.adc.init_gpio();
+                data.adc.as_mut().unwrap().init_gpio();
                 println!("Resetting ADC");
-                data.adc.reset_status();
+                data.adc.as_mut().unwrap().reset_status();
 
-                // delay for at least 4000*clock period
-                println!("Delaying for 1 second");
-                thread::sleep(time::Duration::from_millis(1000));
+                data.adc.as_mut().unwrap().init_regs();
+                data.adc.as_mut().unwrap().start_conversion();
 
-                data.adc.init_regs();
-                data.adc.start_conversion();
-
-                return State::SendData
+                State::SendData
             }
 
-            State::SendData => {
-                let data_serialized = data.adc.test_read_all();
-                thread::sleep(time::Duration::from_millis(1000));
+            State::SendData => { 
+                let data_serialized = data.adc.as_mut().unwrap().test_read_all();
                 let interval = Duration::from_micros(1000000 / 500);
                 let mut next_time = Instant::now() + interval;
-                // let data_serialized = data_message_formation(data.clone());
-                
+                //let data_serialized = data_message_formation(data.clone());
+                //println!("{:?}", data_serialized);
                 if let Some(socket_addr) = data.flight_computer {
                     data.data_socket
                     .send_to(&data_serialized, socket_addr)
@@ -104,8 +119,8 @@ impl State {
             
                 sleep(next_time - Instant::now());
                 next_time += interval; 
-
-                return State::SendData
+        
+                State::SendData
             }
         }
     }

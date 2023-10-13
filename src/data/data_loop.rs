@@ -1,53 +1,27 @@
 use std::borrow::Cow;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
-
 use fs_protobuf_rust::compiled::google::protobuf::Timestamp;
 use fs_protobuf_rust::compiled::mcfs::core;
 use fs_protobuf_rust::compiled::mcfs::data;
 use fs_protobuf_rust::compiled::mcfs::board;
-use quick_protobuf::{serialize_into_vec};
+use quick_protobuf::serialize_into_vec;
 use rand::{distributions::Uniform, Rng};
-use std::net::{IpAddr, SocketAddr};
-
-use std::net::UdpSocket;
-
 use crate::adc;
-use crate::discovery::get_ips;
 
-// pub fn begin(frequency: u64, adc: &mut adc::ADC) {
-//     let socket = UdpSocket::bind(("0.0.0.0", 4573)).expect("Could not bind client socket");
-//     let interval = Duration::from_micros(1000000 / frequency);
-//     let mut next_time = Instant::now() + interval;
-//     let mut rng = rand::thread_rng();
-//     let range = Uniform::new(0, 20000);
-//     let ip_hashmap = get_ips(&["flight-computer-01"]);
-    
-//     // let data: Vec<i32> = (0..5).map(|_| rng.sample(&range) as i32).collect();
-//     let socket_addr = SocketAddr::new(ip_hashmap.get("flight-computer-01").unwrap().unwrap(), 4573);
 
-//     loop {
-//         let data = test_read_all(adc);
-//         let data_serialized = data_message_formation(data.clone());
-        
-//         socket
-//             .send_to(&data_serialized, socket_addr)
-//             .expect("couldn't send data");
-
-//         sleep(next_time - Instant::now());
-//         next_time += interval;
-//     }
-// }
-
-pub fn data_message_formation(data: Vec<f64>) -> Vec<u8> {
+pub fn data_message_formation(measurement: adc::Measurement, data: Vec<f64>) -> Vec<u8> {
     let mut rng = rand::thread_rng();
     let range = Uniform::new(0, 20000);
     let mut node_data: Vec<data::ChannelData> = Vec::new();
-    for node_id in 1..2 {
+    // for node_id in 1..2 {
+    let mut start = 1;
+    if measurement == adc::Measurement::Tc2 {
+        start = 2;
+    }
+    for node_id in start..(data.len() + 1) as u32 {
         let offsets: Vec<u32> = (0..5).map(|_| rng.sample(&range)).collect();
         //let data: Vec<f32> = (0..5).map(|_| rng.sample(&range) as f32 * 1.2).collect();
 
-        node_data.push(generate_node_data(offsets, data.clone(), node_id));
+        node_data.push(generate_node_data(offsets, data.clone(), node_id, measurement.clone()));
     }
 
     let data = data::Data {
@@ -60,14 +34,16 @@ pub fn data_message_formation(data: Vec<f64>) -> Vec<u8> {
         content: core::mod_Message::OneOfcontent::data(data)
     };
 
+    //println!("{:?}", data_message);
+
     let data_serialized = serialize_into_vec(&data_message).expect("Cannot serialize `data`");
     data_serialized
 }
 
-fn generate_node_data(offsets: Vec<u32>, data: Vec<f64>, node_id: u32) -> data::ChannelData<'static> {
+fn generate_node_data(offsets: Vec<u32>, data: Vec<f64>, node_id: u32, measurement: adc::Measurement) -> data::ChannelData<'static> {
     let node = board::ChannelIdentifier {
         board_id: 1,
-        channel_type: board::ChannelType::DIFFERENTIAL_SIGNAL,
+        channel_type: measurement_to_channel_type(node_id, measurement).unwrap(),
         channel: node_id,
     };
 
@@ -82,4 +58,24 @@ fn generate_node_data(offsets: Vec<u32>, data: Vec<f64>, node_id: u32) -> data::
     };
 
     return node_data;
+}
+
+fn measurement_to_channel_type(node_id: u32, measurement: adc::Measurement) -> Option<board::ChannelType> {
+    match (node_id, measurement) {
+        (_, adc::Measurement::CurrentLoopPt) => Some(board::ChannelType::CURRENT_LOOP),
+        (_, adc::Measurement::VValve) => Some(board::ChannelType::VALVE_VOLTAGE),
+        (_, adc::Measurement::IValve) => Some(board::ChannelType::VALVE_CURRENT),
+        (1, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_24V),
+        (2, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_5V5),
+        (3, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_5V), // Digital
+        (4, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_5V), // Analog 
+        (5, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_3V3),
+        (1, adc::Measurement::IPower) => Some(board::ChannelType::CURRENT_LOOP), // 24V
+        (2, adc::Measurement::IPower) => Some(board::ChannelType::CURRENT_LOOP), // 5V
+        (_, adc::Measurement::DiffSensors) => Some(board::ChannelType::DIFFERENTIAL_SIGNAL),
+        (_, adc::Measurement::Rtd) => Some(board::ChannelType::RTD),
+        (_, adc::Measurement::Tc1) => Some(board::ChannelType::TC),
+        (_, adc::Measurement::Tc2) => Some(board::ChannelType::TC),
+        (_, _) => None,
+    }
 }
