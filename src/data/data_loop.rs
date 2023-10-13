@@ -12,12 +12,12 @@ pub fn data_message_formation(measurement: adc::Measurement, data: Vec<f64>) -> 
     let mut rng = rand::thread_rng();
     let range = Uniform::new(0, 20000);
     let mut node_data: Vec<data::ChannelData> = Vec::new();
-    // for node_id in 1..2 {
-    let mut start = 1;
-    if measurement == adc::Measurement::Tc2 {
-        start = 2;
-    }
-    for node_id in start..(data.len() + 1) as u32 {
+    for node_id in 1..2 {
+    // let mut start = 1;
+    // if measurement == adc::Measurement::Tc2 {
+    //     start = 2;
+    // }
+    //for node_id in start..(data.len() + 1) as u32 {
         let offsets: Vec<u32> = (0..5).map(|_| rng.sample(&range)).collect();
         //let data: Vec<f32> = (0..5).map(|_| rng.sample(&range) as f32 * 1.2).collect();
 
