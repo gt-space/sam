@@ -14,8 +14,8 @@ pub fn begin() {
     let socket = UdpSocket::bind("0.0.0.0:8378").expect("Cannot bind to socket");
     let mut buf = [0; 65536];
     loop {
-        let (_num_bytes, _src_addr) = socket.recv_from(&mut buf).expect("no data received");
-
+        let (num_bytes, _src_addr) = socket.recv_from(&mut buf).expect("no data received");
+        println!("{:?}", num_bytes);
         let deserialized_result: Result<core::Message, Error> = deserialize_from_slice(&buf);
         println!("{:#?}", deserialized_result);
         match deserialized_result {

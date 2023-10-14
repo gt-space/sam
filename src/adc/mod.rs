@@ -219,6 +219,7 @@ impl ADC {
 
     pub fn test_read_individual(&mut self) -> f64 {
         thread::sleep(time::Duration::from_millis(1));
+        //thread::sleep(time::Duration::from_micros(100));
         let mut tx_buf_rdata = [ 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
         let mut rx_buf_rdata = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);

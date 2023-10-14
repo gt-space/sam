@@ -62,8 +62,8 @@ impl State {
                 spidev.configure(&options).unwrap();
 
                 let ref_spidev: Rc<RefCell<_>> = Rc::new(RefCell::new(spidev));
-                let adc_differential = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone());
-                data.adc = Some(adc_differential);
+                let adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone());
+                data.adc = Some(adc_cl);
                 data.data_socket.set_nonblocking(true).expect("set_nonblocking call failed");
 
                 State::DeviceDiscovery
