@@ -2,15 +2,16 @@ use fs_protobuf_rust::compiled::mcfs::command;
 use fs_protobuf_rust::compiled::mcfs::core;
 use fs_protobuf_rust::compiled::mcfs::board;
 use quick_protobuf::Error;
-use quick_protobuf::{deserialize_from_slice};
+use quick_protobuf::deserialize_from_slice;
 use std::fs::File;
 
 use std::io::Write;
 use std::net::UdpSocket;
-use crate::gpio;
+use std::sync::Arc;
+use crate::gpio::{Gpio, Pin, PinMode::Output, PinValue::{High, Low}};
 
 
-pub fn begin() {
+pub fn begin(gpio_controllers: Vec<Arc<Gpio>>) {
     let socket = UdpSocket::bind("0.0.0.0:8378").expect("Cannot bind to socket");
     let mut buf = [0; 65536];
     loop {
@@ -20,7 +21,7 @@ pub fn begin() {
         println!("{:#?}", deserialized_result);
         match deserialized_result {
             Ok(message) => match message.content {
-                core::mod_Message::OneOfcontent::command(command) => execute(command),
+                core::mod_Message::OneOfcontent::command(command) => execute(command, gpio_controllers.clone()),
                 core::mod_Message::OneOfcontent::data(..) => println!("Data"),
                 core::mod_Message::OneOfcontent::status(..) => println!("Command"),
                 _ => println!("Other"),
@@ -30,7 +31,7 @@ pub fn begin() {
     }
 }
 
-fn execute(command: command::Command) {
+fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
     match command.command {
         command::mod_Command::OneOfcommand::set_led(set_led_command) => {
             let led = set_led_command.led.unwrap();
@@ -113,55 +114,103 @@ fn execute(command: command::Command) {
             match click_valve_command.state {
                 board::ValveState::VALVE_OPEN => match valve.channel {
                     1 => {
-                        gpio::set_output("8");
-                        gpio::set_high("8");
+                        // gpio::set_output("8");
+                        // gpio::set_high("8");
+                        //let gpio_controller = Gpio::open(0);
+                        let pin = gpio_controllers[0].get_pin(8);
+                        pin.mode(Output);
+                        pin.digital_write(High);
+
                     }
                     2 => {
-                        gpio::set_output("80");
-                        gpio::set_high("80");
+                        // gpio::set_output("80");
+                        // gpio::set_high("80");
+                        //let gpio_controller = Gpio::open(2);
+                        let pin = gpio_controllers[2].get_pin(16);
+                        pin.mode(Output);
+                        pin.digital_write(High);
                     }
                     3 => {
-                        gpio::set_output("81");
-                        gpio::set_high("81");
+                        // gpio::set_output("81");
+                        // gpio::set_high("81");
+                        //let gpio_controller = Gpio::open(2);
+                        let pin = gpio_controllers[2].get_pin(17);
+                        pin.mode(Output);
+                        pin.digital_write(High);
+
                     }
                     4 => {
-                        gpio::set_output("89");
-                        gpio::set_high("89");
+                        // gpio::set_output("89");
+                        // gpio::set_high("89");
+                        //let gpio_controller = Gpio::open(2);
+                        let pin = gpio_controllers[2].get_pin(25);
+                        pin.mode(Output);
+                        pin.digital_write(High);
                     }
                     5 => {
-                        gpio::set_output("65");
-                        gpio::set_high("65");
+                        // gpio::set_output("65");
+                        // gpio::set_high("65");
+                        //let gpio_controller = Gpio::open(2);
+                        let pin = gpio_controllers[2].get_pin(1);
+                        pin.mode(Output);
+                        pin.digital_write(High);
                     }
                     6 => {
-                        gpio::set_output("46");
-                        gpio::set_high("46");
+                        // gpio::set_output("46");
+                        // gpio::set_high("46");
+                        //let gpio_controller = Gpio::open(1);
+                        let pin = gpio_controllers[1].get_pin(14);
+                        pin.mode(Output);
+                        pin.digital_write(High);
                     }
                     _ => println!("Error"),
                 },
                 board::ValveState::VALVE_CLOSED => match valve.channel {
                     1 => {
-                        gpio::set_output("8");
-                        gpio::set_low("8");
+                        // gpio::set_output("8");
+                        // gpio::set_low("8");
+                        //let gpio_controller = Gpio::open(0);
+                        let pin = gpio_controllers[0].get_pin(8);
+                        pin.mode(Output);
+                        pin.digital_write(Low);
                     }
                     2 => {
-                        gpio::set_output("80");
-                        gpio::set_low("80");
+                        // gpio::set_output("80");
+                        // gpio::set_low("80");
+                        //let gpio_controller = Gpio::open(2);
+                        let pin = gpio_controllers[2].get_pin(16);
+                        pin.mode(Output);
+                        pin.digital_write(Low);
                     }
                     3 => {
-                        gpio::set_output("81");
-                        gpio::set_low("81");
+                        // gpio::set_output("81");
+                        // gpio::set_low("81");
+                        let pin = gpio_controllers[2].get_pin(17);
+                        pin.mode(Output);
+                        pin.digital_write(Low);
                     }
                     4 => {
-                        gpio::set_output("89");
-                        gpio::set_low("89");
+                        // gpio::set_output("89");
+                        // gpio::set_low("89");
+                        let pin = gpio_controllers[2].get_pin(25);
+                        pin.mode(Output);
+                        pin.digital_write(Low);
                     }
                     5 => {
-                        gpio::set_output("65");
-                        gpio::set_low("65");
+                        // gpio::set_output("65");
+                        // gpio::set_low("65");
+                        //let gpio_controller = Gpio::open(2);
+                        let pin = gpio_controllers[2].get_pin(1);
+                        pin.mode(Output);
+                        pin.digital_write(Low);
                     }
                     6 => {
-                        gpio::set_output("46");
-                        gpio::set_low("46");
+                        // gpio::set_output("46");
+                        // gpio::set_low("46");
+                        //let gpio_controller = Gpio::open(1);
+                        let pin = gpio_controllers[1].get_pin(14);
+                        pin.mode(Output);
+                        pin.digital_write(Low);
                     }
                     _ => println!("Error"),
                 },
@@ -175,22 +224,22 @@ fn execute(command: command::Command) {
 }
 
 // For testing only.
-pub fn open_valve(id: u32) {
-    let command = command::Command {
-        command: command::mod_Command::OneOfcommand::click_valve(
-            command::ClickValve { 
-                valve: (Some(board::ChannelIdentifier {board_id: 10, channel_type: board::ChannelType::VALVE, channel: id})), 
-                state: (board::ValveState::VALVE_OPEN)
-    })};
-    execute(command);
-}
+// pub fn open_valve(id: u32) {
+//     let command = command::Command {
+//         command: command::mod_Command::OneOfcommand::click_valve(
+//             command::ClickValve { 
+//                 valve: (Some(board::ChannelIdentifier {board_id: 10, channel_type: board::ChannelType::VALVE, channel: id})), 
+//                 state: (board::ValveState::VALVE_OPEN)
+//     })};
+//     execute(command);
+// }
 
-pub fn close_valve(id: u32) {
-    let command = command::Command {
-        command: command::mod_Command::OneOfcommand::click_valve(
-            command::ClickValve { 
-                valve: (Some(board::ChannelIdentifier {board_id: 10, channel_type: board::ChannelType::VALVE, channel: id})), 
-                state: (board::ValveState::VALVE_CLOSED)
-    })};
-    execute(command);
-}
+// pub fn close_valve(id: u32) {
+//     let command = command::Command {
+//         command: command::mod_Command::OneOfcommand::click_valve(
+//             command::ClickValve { 
+//                 valve: (Some(board::ChannelIdentifier {board_id: 10, channel_type: board::ChannelType::VALVE, channel: id})), 
+//                 state: (board::ValveState::VALVE_CLOSED)
+//     })};
+//     execute(command);
+// }

@@ -1,22 +1,21 @@
-use ::core::time;
-use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, thread::{self, sleep}, time::{Instant, Duration}};
-use quick_protobuf::{deserialize_from_slice, Error};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc};
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::cell::RefCell;
 use std::rc::Rc;
-use crate::{discovery::get_ips, adc};
-
-use fs_protobuf_rust::compiled::mcfs::core;
+use crate::{discovery::get_ips, adc::{self, gpio_controller_mappings, pull_gpios_high}, data::data_loop::data_message_formation, gpio::Gpio};
 
 const FC_ADDR: &str = "flight-computer-01.local";
+// const FC_ADDR: &str = "169.254.70.103";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
 pub struct Data {
     ip_addresses: HashMap<String, Option<IpAddr>>,
     pub data_socket: UdpSocket,
     flight_computer: Option<SocketAddr>,
-    adc: Option<adc::ADC>,
+    adcs: Option<Vec<adc::ADC>>,
     state_num: u32,
+    curr_measurement: Option<adc::Measurement>,
+    curr_iteration: u64
 }
 
 impl Data {
@@ -25,23 +24,28 @@ impl Data {
             ip_addresses: HashMap::new(),
             data_socket: UdpSocket::bind(("0.0.0.0", 4573)).expect("Could not bind client socket"),
             flight_computer: None,
-            adc: None,
+            adcs: None,
             state_num: 0,
+            curr_measurement: None,
+            curr_iteration: 0
         }
     }
 }
+
+
 
 #[derive(PartialEq, Debug)]
 pub enum State {
     Init,
     DeviceDiscovery,
     ConnectToFc,
-    InitADC,
-    SendData,
+    InitAdcs,
+    PollAdcs,
+    // SendData,
 }
 
 impl State {
-    pub fn next(self, data: &mut Data) -> State {
+    pub fn next(self, data: &mut Data, controllers: &Vec<Arc<Gpio>>) -> State {
         if data.state_num % 100000 == 0 {
             println!("{:?} {}", self, data.state_num);
         }
@@ -55,15 +59,33 @@ impl State {
 
                 let options = SpidevOptions::new()
                     .bits_per_word(8)
-                    .max_speed_hz(100000)
+                    .max_speed_hz(1000000)
                     .lsb_first(false)
                     .mode(SpiModeFlags::SPI_MODE_1)
                     .build();
                 spidev.configure(&options).unwrap();
 
                 let ref_spidev: Rc<RefCell<_>> = Rc::new(RefCell::new(spidev));
-                let adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone());
-                data.adc = Some(adc_cl);
+                let ref_controllers = Rc::new(gpio_controller_mappings(controllers));
+        
+                //let adc_ds = adc::ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone());
+                let adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone());
+                let board_power = adc::ADC::new(adc::Measurement::VPower, ref_spidev.clone(), ref_controllers.clone());
+                //let board_current = adc::ADC::new(adc::Measurement::IPower, ref_spidev.clone(), ref_controllers.clone());
+                let adc_valve = adc::ADC::new(adc::Measurement::VValve, ref_spidev.clone(), ref_controllers.clone());
+                let adc_tc2 = adc::ADC::new(adc::Measurement::Tc2, ref_spidev.clone(), ref_controllers.clone());
+
+                let mut adcs: Vec<adc::ADC> = Vec::new();
+ 
+                adcs.push(adc_cl);
+                adcs.push(board_power);
+                //adcs.push(board_current);
+                adcs.push(adc_valve);
+                adcs.push(adc_tc2);
+
+                pull_gpios_high(controllers);
+                
+                data.adcs = Some(adcs);
                 data.data_socket.set_nonblocking(true).expect("set_nonblocking call failed");
 
                 State::DeviceDiscovery
@@ -91,52 +113,49 @@ impl State {
                 
                 data.flight_computer = Some(socket_addr);
                 
-                return State::InitADC
+                return State::InitAdcs
             }
 
-            State::InitADC => {
-                data.adc.as_mut().unwrap().init_gpio();
-                println!("Resetting ADC");
-                data.adc.as_mut().unwrap().reset_status();
+            State::InitAdcs => {
+                for adc in data.adcs.as_mut().unwrap() {
+                    adc.init_gpio(data.curr_measurement);
+                    data.curr_measurement = Some(adc.measurement);
+                    println!("Resetting ADC");
+                    adc.reset_status();
 
-                data.adc.as_mut().unwrap().init_regs();
-                data.adc.as_mut().unwrap().start_conversion();
+                    adc.init_regs();
+                    adc.start_conversion();
 
-                State::SendData
-            }
-
-            State::SendData => { 
-                let data_serialized = data.adc.as_mut().unwrap().test_read_all();
-                let interval = Duration::from_micros(1000000 / 500);
-                let mut next_time = Instant::now() + interval;
-                //let data_serialized = data_message_formation(data.clone());
-                //println!("{:?}", data_serialized);
-                if let Some(socket_addr) = data.flight_computer {
-                    data.data_socket
-                    .send_to(&data_serialized, socket_addr)
-                    .expect("couldn't send data");
+                    adc.write_iteration(data.curr_iteration);
                 }
-            
-                sleep(next_time - Instant::now());
-                next_time += interval; 
-        
-                State::SendData
+                data.curr_iteration += 1;
+                State::PollAdcs
             }
-        }
-    }
-    
-}
 
-fn receive(socket: &UdpSocket) {
-    let mut buf = [0; 65536];
+            State::PollAdcs => {
+                for adc in data.adcs.as_mut().unwrap() {
+                    adc.init_gpio(data.curr_measurement);
+                    data.curr_measurement = Some(adc.measurement);
+                    let mut measurement: Vec<f64> = Vec::new();
+                    
+                    // Read ADC
+                    let data_serialized = adc.get_adc_reading(data.curr_iteration);
+                    measurement.push(data_serialized);
 
-    match socket.recv_from(&mut buf) {
-        Ok((_n, _src)) => {
-            let deserialized: Result<core::Message, Error> = deserialize_from_slice(&buf);
-            println!("{:?}", deserialized);
-        }
-        Err(_err) => {
-            return;
+                    // Write ADC for next iteration
+                    adc.write_iteration(data.curr_iteration);
+                
+                    let message = data_message_formation(adc.measurement.clone(), measurement, data.curr_iteration - 1);
+
+                    if let Some(socket_addr) = data.flight_computer {
+                        data.data_socket
+                        .send_to(&message, socket_addr)
+                        .expect("couldn't send data");
+                    }
+                }
+                data.curr_iteration += 1;
+                State::PollAdcs
+            }
         }
     }
 }

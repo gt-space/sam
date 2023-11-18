@@ -1,5 +1,9 @@
+//use command::command_loop::begin;
+use std::{thread, sync::{Arc, Mutex}};
+
+use adc::open_controllers;
 use command::command_loop::begin;
-use std::thread;
+use gpio::Gpio;
 
 pub mod gpio;
 pub mod adc;
@@ -7,44 +11,30 @@ pub mod command;
 pub mod data;
 pub mod discovery;
 pub mod state;
+pub mod tc;
 
 // https://github.com/rust-embedded/rust-spidev/blob/master/examples/spidev-bidir.rs
 fn main() {
-    // /* Create a spidev wrapper to work with
-    // you call this wrapper to handle and all transfers */
-    // let mut spidev = Spidev::open("/dev/spidev0.0").unwrap();
-    // /* ADS124S06 only supports SPI mode 1, so we're sticking with that here
-    //   For a primer on SPI modes of operation, look here:
-    //   https://stackoverflow.com/questions/43155025/why-different-modes-are-provided-in-spi-communication
-    // */
-
-    // let options = SpidevOptions::new()
-    //     .bits_per_word(8)
-    //     .max_speed_hz(100000)
-    //     .lsb_first(false)
-    //     .mode(SpiModeFlags::SPI_MODE_1)
-    //     .build();
-    // spidev.configure(&options).unwrap();
-
-    // let ref_spidev: Rc<RefCell<_>> = Rc::new(RefCell::new(spidev));
-    // let adc_differential = adc::ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone());
-
-    let state_thread = thread::spawn( || {
-        init_state();
+    let controllers = open_controllers();
+    let controllers1 = controllers.clone();
+    let controllers2 = controllers.clone();
+    
+    let state_thread = thread::spawn( move || {
+        init_state(controllers1);
     });
 
-    let command_thread = thread::spawn(move || loop {
-        begin();
+    let command_thread = thread::spawn( move || loop {
+        begin(controllers2.clone());
     });
 
-    state_thread.join();
-    command_thread.join();
+    state_thread.join().expect("Could not join state thread");
+    command_thread.join().expect("Could not join command thread");
 }
 
-fn init_state() {
+fn init_state(controllers: Vec<Arc<Gpio>>) {
     let mut sam_state = state::State::Init;
     let mut data = state::Data::new();
     loop {
-        sam_state = sam_state.next(&mut data);
+        sam_state = sam_state.next(&mut data, &controllers);
     }
 }
