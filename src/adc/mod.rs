@@ -240,13 +240,13 @@ impl ADC {
             Measurement::CurrentLoopPt | 
             Measurement::IValve |
             Measurement::VValve => {
-                match iteration % 6 {
+                match iteration % 2 {
                     0 => { self.write_reg(0x02, 0x00 | 0x0C); }
                     1 => { self.write_reg(0x02, 0x10 | 0x0C); }
-                    2 => { self.write_reg(0x02, 0x20 | 0x0C); }
-                    3 => { self.write_reg(0x02, 0x30 | 0x0C); }
-                    4 => { self.write_reg(0x02, 0x40 | 0x0C); }
-                    5 => { self.write_reg(0x02, 0x50 | 0x0C); }
+                    // 2 => { self.write_reg(0x02, 0x20 | 0x0C); }
+                    // 3 => { self.write_reg(0x02, 0x30 | 0x0C); }
+                    // 4 => { self.write_reg(0x02, 0x40 | 0x0C); }
+                    // 5 => { self.write_reg(0x02, 0x50 | 0x0C); }
                     _ => println!("Failed register write — could not mod iteration")
                 }
             }

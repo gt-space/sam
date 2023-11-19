@@ -70,18 +70,18 @@ impl State {
         
                 //let adc_ds = adc::ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone());
                 let adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone());
-                let board_power = adc::ADC::new(adc::Measurement::VPower, ref_spidev.clone(), ref_controllers.clone());
+                //let board_power = adc::ADC::new(adc::Measurement::VPower, ref_spidev.clone(), ref_controllers.clone());
                 //let board_current = adc::ADC::new(adc::Measurement::IPower, ref_spidev.clone(), ref_controllers.clone());
-                let adc_valve = adc::ADC::new(adc::Measurement::VValve, ref_spidev.clone(), ref_controllers.clone());
-                let adc_tc2 = adc::ADC::new(adc::Measurement::Tc2, ref_spidev.clone(), ref_controllers.clone());
+                //let adc_valve = adc::ADC::new(adc::Measurement::VValve, ref_spidev.clone(), ref_controllers.clone());
+                //let adc_tc2 = adc::ADC::new(adc::Measurement::Tc2, ref_spidev.clone(), ref_controllers.clone());
 
                 let mut adcs: Vec<adc::ADC> = Vec::new();
  
                 adcs.push(adc_cl);
-                adcs.push(board_power);
+                //adcs.push(board_power);
                 //adcs.push(board_current);
-                adcs.push(adc_valve);
-                adcs.push(adc_tc2);
+                //adcs.push(adc_valve);
+                //adcs.push(adc_tc2);
 
                 pull_gpios_high(controllers);
                 

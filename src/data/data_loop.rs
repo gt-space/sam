@@ -63,7 +63,7 @@ fn generate_node_data(offsets: Vec<u32>, data: Vec<f64>, iteration: u64, measure
 fn iteration_to_node_id(measurement: adc::Measurement, iteration: u64) -> Option<u32> {
     match measurement {
         adc::Measurement::CurrentLoopPt | adc::Measurement::IValve | adc::Measurement::VValve => {
-            return u32::try_from(iteration % 6).ok();
+            return u32::try_from(iteration % 2).ok();
         }
         adc::Measurement::VPower => {
             return u32::try_from(iteration % 5).ok();
