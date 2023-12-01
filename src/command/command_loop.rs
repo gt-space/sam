@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::Write;
 use std::net::UdpSocket;
 use std::sync::Arc;
-use crate::gpio::{Gpio, Pin, PinMode::Output, PinValue::{High, Low}};
+use crate::gpio::{Gpio, PinMode::Output, PinValue::{High, Low}};
 
 
 pub fn begin(gpio_controllers: Vec<Arc<Gpio>>) {
@@ -114,51 +114,33 @@ fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
             match click_valve_command.state {
                 board::ValveState::VALVE_OPEN => match valve.channel {
                     1 => {
-                        // gpio::set_output("8");
-                        // gpio::set_high("8");
-                        //let gpio_controller = Gpio::open(0);
                         let pin = gpio_controllers[0].get_pin(8);
                         pin.mode(Output);
                         pin.digital_write(High);
 
                     }
                     2 => {
-                        // gpio::set_output("80");
-                        // gpio::set_high("80");
-                        //let gpio_controller = Gpio::open(2);
                         let pin = gpio_controllers[2].get_pin(16);
                         pin.mode(Output);
                         pin.digital_write(High);
                     }
                     3 => {
-                        // gpio::set_output("81");
-                        // gpio::set_high("81");
-                        //let gpio_controller = Gpio::open(2);
                         let pin = gpio_controllers[2].get_pin(17);
                         pin.mode(Output);
                         pin.digital_write(High);
 
                     }
                     4 => {
-                        // gpio::set_output("89");
-                        // gpio::set_high("89");
-                        //let gpio_controller = Gpio::open(2);
                         let pin = gpio_controllers[2].get_pin(25);
                         pin.mode(Output);
                         pin.digital_write(High);
                     }
                     5 => {
-                        // gpio::set_output("65");
-                        // gpio::set_high("65");
-                        //let gpio_controller = Gpio::open(2);
                         let pin = gpio_controllers[2].get_pin(1);
                         pin.mode(Output);
                         pin.digital_write(High);
                     }
                     6 => {
-                        // gpio::set_output("46");
-                        // gpio::set_high("46");
-                        //let gpio_controller = Gpio::open(1);
                         let pin = gpio_controllers[1].get_pin(14);
                         pin.mode(Output);
                         pin.digital_write(High);
@@ -167,47 +149,31 @@ fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
                 },
                 board::ValveState::VALVE_CLOSED => match valve.channel {
                     1 => {
-                        // gpio::set_output("8");
-                        // gpio::set_low("8");
-                        //let gpio_controller = Gpio::open(0);
                         let pin = gpio_controllers[0].get_pin(8);
                         pin.mode(Output);
                         pin.digital_write(Low);
                     }
                     2 => {
-                        // gpio::set_output("80");
-                        // gpio::set_low("80");
-                        //let gpio_controller = Gpio::open(2);
                         let pin = gpio_controllers[2].get_pin(16);
                         pin.mode(Output);
                         pin.digital_write(Low);
                     }
                     3 => {
-                        // gpio::set_output("81");
-                        // gpio::set_low("81");
                         let pin = gpio_controllers[2].get_pin(17);
                         pin.mode(Output);
                         pin.digital_write(Low);
                     }
                     4 => {
-                        // gpio::set_output("89");
-                        // gpio::set_low("89");
                         let pin = gpio_controllers[2].get_pin(25);
                         pin.mode(Output);
                         pin.digital_write(Low);
                     }
                     5 => {
-                        // gpio::set_output("65");
-                        // gpio::set_low("65");
-                        //let gpio_controller = Gpio::open(2);
                         let pin = gpio_controllers[2].get_pin(1);
                         pin.mode(Output);
                         pin.digital_write(Low);
                     }
                     6 => {
-                        // gpio::set_output("46");
-                        // gpio::set_low("46");
-                        //let gpio_controller = Gpio::open(1);
                         let pin = gpio_controllers[1].get_pin(14);
                         pin.mode(Output);
                         pin.digital_write(Low);

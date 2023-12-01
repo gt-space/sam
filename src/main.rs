@@ -1,5 +1,4 @@
-//use command::command_loop::begin;
-use std::{thread, sync::{Arc, Mutex}};
+use std::{thread, sync::Arc};
 
 use adc::open_controllers;
 use command::command_loop::begin;

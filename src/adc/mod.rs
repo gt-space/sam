@@ -1,14 +1,12 @@
 use spidev::spidevioctl::SpidevTransfer;
 use spidev::Spidev;
 use std::sync::Arc;
-use std::time::Instant;
 use std::{thread, time};
 
 use std::collections::HashMap;
-use std::cell::RefCell;
 use std::rc::Rc;
 
-use crate::gpio::{Gpio, Pin, PinMode::Output, PinValue::{High, Low}};
+use crate::gpio::{Gpio, Pin, PinMode::{Output, Input}, PinValue::{High, Low}};
 use crate::tc::type_k_tables::typek_convert;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
@@ -26,22 +24,24 @@ pub enum Measurement {
 
 pub struct ADC {
     pub measurement: Measurement,
-    pub spidev: Rc<RefCell<Spidev>>,
+    pub spidev: Rc<Spidev>,
     //drdy_mappings: HashMap<Measurement, usize>,
     ambient_temp: f64,
-    gpio_mappings: Rc<HashMap<Measurement, Pin>>
+    gpio_mappings: Rc<HashMap<Measurement, Pin>>,
+    drdy_mappings: Rc<HashMap<Measurement, Pin>>
 }
 
 impl ADC {
     // Constructs a new instance of an Analog-to-Digital Converter 
-    pub fn new(measurement: Measurement, spidev: Rc<RefCell<Spidev>>, gpio_mappings: Rc<HashMap<Measurement, Pin>>) -> ADC {
+    pub fn new(measurement: Measurement, spidev: Rc<Spidev>, gpio_mappings: Rc<HashMap<Measurement, Pin>>, drdy_mappings: Rc<HashMap<Measurement, Pin>>) -> ADC {
         ADC {
             measurement: measurement,
             spidev: spidev,
             //drdy_mappings: Self::drdy_mappings(),
             ambient_temp: 0.0,
             //gpio_mappings: Self::gpio_controller_mappings()
-            gpio_mappings: gpio_mappings
+            gpio_mappings: gpio_mappings,
+            drdy_mappings: drdy_mappings
         }
     }
 
@@ -60,22 +60,6 @@ impl ADC {
         cs_gpios
     }
 
-    // pub fn drdy_mappings() -> HashMap<Measurement, (usize, usize)> {
-    //     let mut drdy_gpios: HashMap<Measurement, (usize, usize)> = HashMap::new();
-
-    //     drdy_gpios.insert(Measurement::CurrentLoopPt, (1, 28));
-    //     drdy_gpios.insert(Measurement::IValve, ());
-    //     drdy_gpios.insert(Measurement::VValve, 44);
-    //     drdy_gpios.insert(Measurement::VPower, 76);
-    //     drdy_gpios.insert(Measurement::IPower, 78);
-    //     drdy_gpios.insert(Measurement::Tc1, 0);
-    //     drdy_gpios.insert(Measurement::Tc2, 0);
-    //     drdy_gpios.insert(Measurement::Rtd, 0);
-    //     drdy_gpios.insert(Measurement::DiffSensors, 111); // this should be 112
-
-    //     drdy_gpios
-    // }
-
     pub fn init_gpio(&mut self, prev_adc: Option<Measurement>) { 
         // pull old adc HIGH
         if let Some(old_adc) = prev_adc {
@@ -92,28 +76,17 @@ impl ADC {
         }
     }
 
-    // pub fn poll_data_ready(&mut self) {
-    //     // poll the data ready pin till low (active low)
-    //     let drdy_pin = self.gpio_controller.get(&self.measurement).unwrap();
+    pub fn poll_data_ready(&mut self) {
+        // poll the data ready pin till low (active low)
+        let drdy_pin = self.drdy_mappings.get(&self.measurement).unwrap();
 
-
-    //     loop {
-    //         let pin_value = drdy_pin.digital_read();
-    //         if pin_value == Low {
-    //             break;
-    //         }
-    //     }
-
-    //     // if let Some(my_drdy) = self.drdy_mappings.get(&self.measurement) {
-    //     //     let gpio_str: &str = &format!("{}", my_drdy);
-    //     //     loop {
-    //     //         let value = gpio::read_gpio_value(gpio_str);
-    //     //         if value == 0 {
-    //     //             break;
-    //     //         }
-    //     //     }
-    //     // }
-    // }
+        loop {
+            let pin_value = drdy_pin.digital_read();
+            if pin_value == Low {
+                break;
+            }
+        }
+    }
 
     pub fn init_regs(&mut self) {
         // Read initial registers
@@ -170,14 +143,14 @@ impl ADC {
     pub fn reset_status(&mut self) {
         let tx_buf_reset = [0x06];
         let mut transfer = SpidevTransfer::write(&tx_buf_reset);
-        let _status = self.spidev.borrow_mut().transfer(&mut transfer);
+        let _status = self.spidev.transfer(&mut transfer);
     }
 
     pub fn start_conversion(&mut self) {
         let mut tx_buf_rdata = [ 0x08];
         let mut rx_buf_rdata = [ 0x00];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
-        let _status = self.spidev.borrow_mut().transfer(&mut transfer);
+        let _status = self.spidev.transfer(&mut transfer);
         //thread::sleep(time::Duration::from_millis(1000));
         thread::sleep(time::Duration::from_millis(1));
     }
@@ -186,7 +159,7 @@ impl ADC {
         let mut tx_buf_rdata = [ 0x19];
         let mut rx_buf_rdata = [ 0x00];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
-        let _status = self.spidev.borrow_mut().transfer(&mut transfer);
+        let _status = self.spidev.transfer(&mut transfer);
         thread::sleep(time::Duration::from_millis(1000));
     }
     
@@ -196,7 +169,7 @@ impl ADC {
         tx_buf_readreg[0] = 0x20 | reg;
         tx_buf_readreg[1] = num_regs;
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_readreg, &mut rx_buf_readreg);
-        let _status = self.spidev.borrow_mut().transfer(&mut transfer);
+        let _status = self.spidev.transfer(&mut transfer);
         println!("data: {:?}", rx_buf_readreg);
     }
     
@@ -206,31 +179,20 @@ impl ADC {
         tx_buf_writereg[0] = 0x40 | reg;
         tx_buf_writereg[2] = data;
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_writereg, &mut rx_buf_writereg);
-        let _status = self.spidev.borrow_mut().transfer(&mut transfer);
+        let _status = self.spidev.transfer(&mut transfer);
     }
 
     pub fn get_adc_reading(&mut self, iteration: u64) -> f64 {
-        // if  self.measurement == Measurement::Rtd || 
-        //     self.measurement == Measurement::Tc1 || 
-        //     self.measurement == Measurement::Tc2 {
-        //         // can't use data ready for these
-        //         thread::sleep(time::Duration::from_micros(800));
-        //     }
-        // else {
-        //     self.poll_data_ready();
-        // }
-        thread::sleep(time::Duration::from_micros(700));
+        if  self.measurement == Measurement::Rtd || 
+            self.measurement == Measurement::Tc1 || 
+            self.measurement == Measurement::Tc2 {
+                // can't use data ready for these
+                thread::sleep(time::Duration::from_micros(700));
+            }
+        else {
+            self.poll_data_ready();
+        }
         let val = self.test_read_individual(iteration - 1).try_into().unwrap();
-
-        // if ((iteration % 4 == 1) && 
-        //     (self.measurement == Measurement::Tc1 || self.measurement == Measurement::Tc2)) {
-        //         //self.ambient_temp = val;
-
-        //         // disable sys monitor 
-        //         self.write_reg(0x09, 0x10);
-        //         // set pga gain to 32
-        //         self.write_reg(0x03, 0x0D);
-        // }
 
         val
     }
@@ -240,13 +202,13 @@ impl ADC {
             Measurement::CurrentLoopPt | 
             Measurement::IValve |
             Measurement::VValve => {
-                match iteration % 2 {
+                match iteration % 6 {
                     0 => { self.write_reg(0x02, 0x00 | 0x0C); }
                     1 => { self.write_reg(0x02, 0x10 | 0x0C); }
-                    // 2 => { self.write_reg(0x02, 0x20 | 0x0C); }
-                    // 3 => { self.write_reg(0x02, 0x30 | 0x0C); }
-                    // 4 => { self.write_reg(0x02, 0x40 | 0x0C); }
-                    // 5 => { self.write_reg(0x02, 0x50 | 0x0C); }
+                    2 => { self.write_reg(0x02, 0x20 | 0x0C); }
+                    3 => { self.write_reg(0x02, 0x30 | 0x0C); }
+                    4 => { self.write_reg(0x02, 0x40 | 0x0C); }
+                    5 => { self.write_reg(0x02, 0x50 | 0x0C); }
                     _ => println!("Failed register write — could not mod iteration")
                 }
             }
@@ -301,7 +263,7 @@ impl ADC {
         let mut tx_buf_rdata = [ 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
         let mut rx_buf_rdata = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
-        let _status = self.spidev.borrow_mut().transfer(&mut transfer);
+        let _status = self.spidev.transfer(&mut transfer);
         let value: i16 = ((rx_buf_rdata[1] as i16) << 8) | (rx_buf_rdata[2] as i16);
         let value2: f64 = value as f64;
 
@@ -309,7 +271,7 @@ impl ADC {
         //println!("{:?}", Instant::now());
 
         if self.measurement == Measurement::CurrentLoopPt {
-            reading = ((value as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64)) / 200.0;
+            reading = ((value as i32 + 32768) as f64) * (2.5 / (2u64.pow(15) as f64));
             //println!("CL {}: {} ", iteration%6, reading);
         }
         if self.measurement == Measurement::VPower { 
@@ -354,9 +316,6 @@ pub fn open_controllers() -> Vec<Arc<Gpio>> {
 }
 
 pub fn gpio_controller_mappings(controllers: &Vec<Arc<Gpio>>) -> HashMap<Measurement, Pin> {
-    // Return (chip select mapping, data ready mapping)
-    //let mut gpio_mapping: HashMap<Measurement, Pin> = HashMap::new();
-
     let cl_pin = controllers[0].get_pin(30);
     cl_pin.mode(Output);
 
@@ -399,69 +358,87 @@ pub fn gpio_controller_mappings(controllers: &Vec<Arc<Gpio>>) -> HashMap<Measure
     gpio_mapping
 }
 
+pub fn data_ready_mappings(controllers: &Vec<Arc<Gpio>>) -> HashMap<Measurement, Pin> {
+    let cl_pin = controllers[1].get_pin(28);
+    cl_pin.mode(Input);
+
+    let i_valve_pin = controllers[2].get_pin(3);
+    i_valve_pin.mode(Input);
+
+    let v_valve_pin = controllers[1].get_pin(12);
+    v_valve_pin.mode(Input);
+
+    let v_power_pin = controllers[2].get_pin(12);
+    v_power_pin.mode(Input);
+
+    let i_power_pin = controllers[2].get_pin(14);
+    i_power_pin.mode(Input);
+
+    let diff_pin = controllers[3].get_pin(15);
+    diff_pin.mode(Input);
+
+    let gpio_mapping = HashMap::from([
+        (Measurement::CurrentLoopPt, cl_pin),
+        (Measurement::IValve, i_valve_pin),
+        (Measurement::VValve, v_valve_pin),
+        (Measurement::VPower, v_power_pin),
+        (Measurement::IPower, i_power_pin),
+        (Measurement::DiffSensors, diff_pin),
+        ]);
+
+    gpio_mapping
+}
+
 pub fn pull_gpios_high(controllers: &Vec<Arc<Gpio>>) {
-    //let cs_cl = Gpio::open(0);
     let clk_cl = controllers[0].get_pin(30);
     clk_cl.mode(Output);
     clk_cl.digital_write(High);
 
-    //let cs_valve_i = Gpio::open(2);
     let clk_valve_i = controllers[2].get_pin(4);
     clk_valve_i.mode(Output);
     clk_valve_i.digital_write(High);
 
-    //let cs_valve_v = Gpio::open(0);
     let clk_valve_v = controllers[0].get_pin(26);
     clk_valve_v.mode(Output);
     clk_valve_v.digital_write(High);
 
-    //let cs_v_power = Gpio::open(2);
     let clk_v_power = controllers[2].get_pin(13);
     clk_v_power.mode(Output);
     clk_v_power.digital_write(High);
 
-    //let cs_i_power = Gpio::open(2);
     let clk_i_power = controllers[2].get_pin(15);
     clk_i_power.mode(Output);
     clk_i_power.digital_write(High);
 
-    //let cs_tc_1 = Gpio::open(0);
     let clk_tc_1 = controllers[0].get_pin(10);
     clk_tc_1.mode(Output);
     clk_tc_1.digital_write(High);
 
-    //let cs_tc_2 = Gpio::open(0);
     let clk_tc_2 = controllers[0].get_pin(20);
     clk_tc_2.mode(Output);
     clk_tc_2.digital_write(High);
 
-    //let cs_ds = Gpio::open(3);
     let clk_ds = controllers[3].get_pin(16);
     clk_ds.mode(Output);
     clk_ds.digital_write(High);
 
-    //let cs_rtd = Gpio::open(2);
     let clk_rtd = controllers[2].get_pin(11);
     clk_rtd.mode(Output);
     clk_rtd.digital_write(High);
 
     // others 
-    //let cs_spi0 = Gpio::open(0);
     let clk_spi0 = controllers[0].get_pin(5);
     clk_spi0.mode(Output);
     clk_spi0.digital_write(High);
 
-    //let cs_spi1 = Gpio::open(0);
     let clk_spi1 = controllers[0].get_pin(13);
     clk_spi1.mode(Output);
     clk_spi1.digital_write(High);
 
-    //let cs_brd_temp = Gpio::open(0);
     let clk_brd_temp = controllers[0].get_pin(23);
     clk_brd_temp.mode(Output);
     clk_brd_temp.digital_write(High);
 
-    //let cs_tc_cj = Gpio::open(2);
     let clk_tc_cj = controllers[2].get_pin(23);
     clk_tc_cj.mode(Output);
     clk_tc_cj.digital_write(High);

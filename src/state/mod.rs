@@ -1,11 +1,10 @@
 use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc};
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
-use std::cell::RefCell;
 use std::rc::Rc;
-use crate::{discovery::get_ips, adc::{self, gpio_controller_mappings, pull_gpios_high}, data::data_loop::data_message_formation, gpio::Gpio};
+use crate::{discovery::get_ips, adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings}, data::data_loop::data_message_formation, gpio::Gpio};
 
-const FC_ADDR: &str = "flight-computer-01.local";
-// const FC_ADDR: &str = "169.254.70.103";
+// const FC_ADDR: &str = "flight-computer-01.local";
+const FC_ADDR: &str = "patrick-XPS-15-9500.local";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
 pub struct Data {
@@ -65,15 +64,16 @@ impl State {
                     .build();
                 spidev.configure(&options).unwrap();
 
-                let ref_spidev: Rc<RefCell<_>> = Rc::new(RefCell::new(spidev));
+                let ref_spidev: Rc<_> = Rc::new(spidev);
                 let ref_controllers = Rc::new(gpio_controller_mappings(controllers));
+                let ref_drdy = Rc::new(data_ready_mappings(controllers));
         
-                //let adc_ds = adc::ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone());
-                let adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone());
-                //let board_power = adc::ADC::new(adc::Measurement::VPower, ref_spidev.clone(), ref_controllers.clone());
-                //let board_current = adc::ADC::new(adc::Measurement::IPower, ref_spidev.clone(), ref_controllers.clone());
-                //let adc_valve = adc::ADC::new(adc::Measurement::VValve, ref_spidev.clone(), ref_controllers.clone());
-                //let adc_tc2 = adc::ADC::new(adc::Measurement::Tc2, ref_spidev.clone(), ref_controllers.clone());
+                //let adc_ds = adc::ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                //let board_power = adc::ADC::new(adc::Measurement::VPower, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                //let board_current = adc::ADC::new(adc::Measurement::IPower, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                //let adc_valve = adc::ADC::new(adc::Measurement::VValve, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                //let adc_tc2 = adc::ADC::new(adc::Measurement::Tc2, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
 
                 let mut adcs: Vec<adc::ADC> = Vec::new();
  

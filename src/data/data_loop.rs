@@ -12,17 +12,9 @@ pub fn data_message_formation(measurement: adc::Measurement, data: Vec<f64>, ite
     let mut rng = rand::thread_rng();
     let range = Uniform::new(0, 20000);
     let mut node_data: Vec<data::ChannelData> = Vec::new();
-    //for node_id in 1..2 {
-    // let mut start = 1;
-    // if measurement == adc::Measurement::Tc2 {
-    //     start = 2;
-    // }
-    //for node_id in start..(data.len() + 1) as u32 {
     let offsets: Vec<u32> = (0..5).map(|_| rng.sample(&range)).collect();
-        //let data1: Vec<f64> = (0..5).map(|_| rng.sample(&range) as f64 * 1.2).collect();
 
     node_data.push(generate_node_data(offsets, data.clone(), iteration, measurement.clone()));
-    //}
 
     let data = data::Data {
         channel_data: node_data,
@@ -33,8 +25,6 @@ pub fn data_message_formation(measurement: adc::Measurement, data: Vec<f64>, ite
         board_id: 1,
         content: core::mod_Message::OneOfcontent::data(data)
     };
-
-    //println!("{:?}", data_message);
 
     let data_serialized = serialize_into_vec(&data_message).expect("Cannot serialize `data`");
     data_serialized
@@ -63,7 +53,7 @@ fn generate_node_data(offsets: Vec<u32>, data: Vec<f64>, iteration: u64, measure
 fn iteration_to_node_id(measurement: adc::Measurement, iteration: u64) -> Option<u32> {
     match measurement {
         adc::Measurement::CurrentLoopPt | adc::Measurement::IValve | adc::Measurement::VValve => {
-            return u32::try_from(iteration % 2).ok();
+            return u32::try_from(iteration % 6).ok();
         }
         adc::Measurement::VPower => {
             return u32::try_from(iteration % 5).ok();
