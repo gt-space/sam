@@ -22,7 +22,7 @@ fn main() {
         init_state(controllers1);
     });
 
-    let command_thread = thread::spawn( move || loop {
+    let command_thread = thread::spawn( move || {
         begin(controllers2.clone());
     });
 

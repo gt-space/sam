@@ -1,88 +1,61 @@
-use std::borrow::Cow;
-use fs_protobuf_rust::compiled::google::protobuf::Timestamp;
-use fs_protobuf_rust::compiled::mcfs::core;
-use fs_protobuf_rust::compiled::mcfs::data;
-use fs_protobuf_rust::compiled::mcfs::board;
-use quick_protobuf::serialize_into_vec;
-use rand::{distributions::Uniform, Rng};
+use common::comm::DataMessage;
+use common::comm::RawDataPoint;
+use common::comm::ChannelDataBurst;
 use crate::adc;
 
 
-pub fn data_message_formation(measurement: adc::Measurement, data: Vec<f64>, iteration: u64) -> Vec<u8> {
-    let mut rng = rand::thread_rng();
-    let range = Uniform::new(0, 20000);
-    let mut node_data: Vec<data::ChannelData> = Vec::new();
-    let offsets: Vec<u32> = (0..5).map(|_| rng.sample(&range)).collect();
-
-    node_data.push(generate_node_data(offsets, data.clone(), iteration, measurement.clone()));
-
-    let data = data::Data {
-        channel_data: node_data,
-    };
-
-    let data_message = core::Message {
-        timestamp: Some(Timestamp { seconds: 9, nanos: 100 }),
-        board_id: 1,
-        content: core::mod_Message::OneOfcontent::data(data)
-    };
-
-    let data_serialized = serialize_into_vec(&data_message).expect("Cannot serialize `data`");
+pub fn data_message_formation(measurement: adc::Measurement, data: RawDataPoint, iteration: u64) -> Result<Vec<u8>, postcard::Error> {
+    let data_message = generate_node_data(data.clone(), iteration, measurement.clone());
+    let data_serialized = postcard::to_allocvec(&data_message);
     data_serialized
 }
 
-fn generate_node_data(offsets: Vec<u32>, data: Vec<f64>, iteration: u64, measurement: adc::Measurement) -> data::ChannelData<'static> {
-    let node = board::ChannelIdentifier {
-        board_id: 1,
-        channel_type: measurement_to_channel_type(iteration_to_node_id(measurement, iteration).unwrap(), measurement).unwrap(),
+fn generate_node_data(data: RawDataPoint, iteration: u64, measurement: adc::Measurement) -> DataMessage {
+    let data_burst = ChannelDataBurst {
         channel: iteration_to_node_id(measurement, iteration).unwrap(),
+        channel_type: measurement_to_channel_type(iteration_to_node_id(measurement, iteration).unwrap(), measurement).unwrap(),
+        data_points: vec![data]
     };
 
-    let node_data = data::ChannelData {
-        timestamp: Some(Timestamp {
-            seconds: 9,
-            nanos: 100,
-        }),
-        channel: Some(node),
-        micros_offsets: offsets,
-        data_points: data::mod_ChannelData::OneOfdata_points::f64_array(data::F64Array {data: Cow::from(data)})
-    };
+    let data_message = DataMessage::Sam(vec![data_burst]);
 
-    return node_data;
+    return data_message;
 }
 
 fn iteration_to_node_id(measurement: adc::Measurement, iteration: u64) -> Option<u32> {
     match measurement {
         adc::Measurement::CurrentLoopPt | adc::Measurement::IValve | adc::Measurement::VValve => {
-            return u32::try_from(iteration % 6).ok();
+            // return u32::try_from((iteration % 6) + 1).ok();
+            return u32::try_from((iteration % 2) + 1).ok();
         }
         adc::Measurement::VPower => {
-            return u32::try_from(iteration % 5).ok();
+            return u32::try_from((iteration % 5) + 1).ok();
         }
         adc::Measurement::IPower | adc::Measurement::Rtd => {
-            return u32::try_from(iteration % 2).ok();
+            return u32::try_from((iteration % 2) + 1).ok();
         }
         adc::Measurement::DiffSensors | adc::Measurement::Tc1 | adc::Measurement::Tc2 => {
-            return u32::try_from(iteration % 3).ok();
+            return u32::try_from((iteration % 3) + 1).ok();
         }
     }
 }
 
-fn measurement_to_channel_type(node_id: u32, measurement: adc::Measurement) -> Option<board::ChannelType> {
+fn measurement_to_channel_type(node_id: u32, measurement: adc::Measurement) -> Option<common::comm::ChannelType> {
     match (node_id, measurement) {
-        (_, adc::Measurement::CurrentLoopPt) => Some(board::ChannelType::CURRENT_LOOP),
-        (_, adc::Measurement::VValve) => Some(board::ChannelType::VALVE_VOLTAGE),
-        (_, adc::Measurement::IValve) => Some(board::ChannelType::VALVE_CURRENT),
-        (0, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_24V),
-        (1, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_5V5),
-        (2, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_5V), // Digital
-        (3, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_5V), // Analog 
-        (4, adc::Measurement::VPower) => Some(board::ChannelType::RAIL_3V3),
-        (0, adc::Measurement::IPower) => Some(board::ChannelType::CURRENT_LOOP), // 24V
-        (1, adc::Measurement::IPower) => Some(board::ChannelType::CURRENT_LOOP), // 5V
-        (_, adc::Measurement::DiffSensors) => Some(board::ChannelType::DIFFERENTIAL_SIGNAL),
-        (_, adc::Measurement::Rtd) => Some(board::ChannelType::RTD),
-        (_, adc::Measurement::Tc1) => Some(board::ChannelType::TC),
-        (_, adc::Measurement::Tc2) => Some(board::ChannelType::TC),
+        (_, adc::Measurement::CurrentLoopPt) => Some(common::comm::ChannelType::CurrentLoop),
+        (_, adc::Measurement::VValve) => Some(common::comm::ChannelType::ValveVoltage),
+        (_, adc::Measurement::IValve) => Some(common::comm::ChannelType::ValveCurrent),
+        (0, adc::Measurement::VPower) => Some(common::comm::ChannelType::RailVoltage),
+        (1, adc::Measurement::VPower) => Some(common::comm::ChannelType::RailVoltage),
+        (2, adc::Measurement::VPower) => Some(common::comm::ChannelType::RailVoltage), // Digital
+        (3, adc::Measurement::VPower) => Some(common::comm::ChannelType::RailVoltage), // Analog 
+        (4, adc::Measurement::VPower) => Some(common::comm::ChannelType::RailVoltage),
+        (0, adc::Measurement::IPower) => Some(common::comm::ChannelType::RailCurrent), // 24V
+        (1, adc::Measurement::IPower) => Some(common::comm::ChannelType::RailCurrent), // 5V
+        (_, adc::Measurement::DiffSensors) => Some(common::comm::ChannelType::DifferentialSignal),
+        (_, adc::Measurement::Rtd) => Some(common::comm::ChannelType::Rtd),
+        (_, adc::Measurement::Tc1) => Some(common::comm::ChannelType::Tc),
+        (_, adc::Measurement::Tc2) => Some(common::comm::ChannelType::Tc),
         (_, _) => None,
     }
 }

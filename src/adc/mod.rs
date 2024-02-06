@@ -1,10 +1,12 @@
 use spidev::spidevioctl::SpidevTransfer;
 use spidev::Spidev;
 use std::sync::Arc;
+use std::time::{UNIX_EPOCH, SystemTime};
 use std::{thread, time};
 
 use std::collections::HashMap;
 use std::rc::Rc;
+use chrono::Utc;
 
 use crate::gpio::{Gpio, Pin, PinMode::{Output, Input}, PinValue::{High, Low}};
 use crate::tc::type_k_tables::typek_convert;
@@ -25,7 +27,6 @@ pub enum Measurement {
 pub struct ADC {
     pub measurement: Measurement,
     pub spidev: Rc<Spidev>,
-    //drdy_mappings: HashMap<Measurement, usize>,
     ambient_temp: f64,
     gpio_mappings: Rc<HashMap<Measurement, Pin>>,
     drdy_mappings: Rc<HashMap<Measurement, Pin>>
@@ -37,9 +38,7 @@ impl ADC {
         ADC {
             measurement: measurement,
             spidev: spidev,
-            //drdy_mappings: Self::drdy_mappings(),
             ambient_temp: 0.0,
-            //gpio_mappings: Self::gpio_controller_mappings()
             gpio_mappings: gpio_mappings,
             drdy_mappings: drdy_mappings
         }
@@ -64,14 +63,12 @@ impl ADC {
         // pull old adc HIGH
         if let Some(old_adc) = prev_adc {
             if let Some(pin) = self.gpio_mappings.get(&old_adc) {
-                //pin.mode(Output);
                 pin.digital_write(High);
             } 
         }
 
         // pull new adc LOW
         if let Some(pin) = self.gpio_mappings.get(&self.measurement) {
-            //pin.mode(Output);
             pin.digital_write(Low);
         }
     }
@@ -182,7 +179,7 @@ impl ADC {
         let _status = self.spidev.transfer(&mut transfer);
     }
 
-    pub fn get_adc_reading(&mut self, iteration: u64) -> f64 {
+    pub fn get_adc_reading(&mut self, iteration: u64) -> (f64, f64) {
         if  self.measurement == Measurement::Rtd || 
             self.measurement == Measurement::Tc1 || 
             self.measurement == Measurement::Tc2 {
@@ -193,8 +190,11 @@ impl ADC {
             self.poll_data_ready();
         }
         let val = self.test_read_individual(iteration - 1).try_into().unwrap();
+        
+        let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let unix_timestamp = start.as_secs_f64();
 
-        val
+        (val, unix_timestamp)
     }
 
     pub fn write_iteration(&mut self, iteration: u64) {
@@ -202,13 +202,13 @@ impl ADC {
             Measurement::CurrentLoopPt | 
             Measurement::IValve |
             Measurement::VValve => {
-                match iteration % 6 {
+                match iteration % 2 {
                     0 => { self.write_reg(0x02, 0x00 | 0x0C); }
                     1 => { self.write_reg(0x02, 0x10 | 0x0C); }
-                    2 => { self.write_reg(0x02, 0x20 | 0x0C); }
-                    3 => { self.write_reg(0x02, 0x30 | 0x0C); }
-                    4 => { self.write_reg(0x02, 0x40 | 0x0C); }
-                    5 => { self.write_reg(0x02, 0x50 | 0x0C); }
+                    // 2 => { self.write_reg(0x02, 0x20 | 0x0C); }
+                    // 3 => { self.write_reg(0x02, 0x30 | 0x0C); }
+                    // 4 => { self.write_reg(0x02, 0x40 | 0x0C); }
+                    // 5 => { self.write_reg(0x02, 0x50 | 0x0C); }
                     _ => println!("Failed register write — could not mod iteration")
                 }
             }
@@ -390,56 +390,76 @@ pub fn data_ready_mappings(controllers: &Vec<Arc<Gpio>>) -> HashMap<Measurement,
 }
 
 pub fn pull_gpios_high(controllers: &Vec<Arc<Gpio>>) {
-    let clk_cl = controllers[0].get_pin(30);
-    clk_cl.mode(Output);
-    clk_cl.digital_write(High);
+    let pins = vec![controllers[0].get_pin(30), 
+                    controllers[2].get_pin(4),
+                    controllers[0].get_pin(26),
+                    controllers[2].get_pin(13),
+                    controllers[2].get_pin(15),
+                    controllers[0].get_pin(10),
+                    controllers[0].get_pin(20),
+                    controllers[3].get_pin(16),
+                    controllers[2].get_pin(11),
+                    controllers[0].get_pin(5),
+                    controllers[0].get_pin(13),
+                    controllers[0].get_pin(23),
+                    controllers[2].get_pin(23)];
 
-    let clk_valve_i = controllers[2].get_pin(4);
-    clk_valve_i.mode(Output);
-    clk_valve_i.digital_write(High);
+    
+    for pin in pins.iter() {
+        pin.mode(Output);
+        pin.digital_write(High);
+    }
 
-    let clk_valve_v = controllers[0].get_pin(26);
-    clk_valve_v.mode(Output);
-    clk_valve_v.digital_write(High);
+    // let clk_cl = controllers[0].get_pin(30);
+    // clk_cl.mode(Output);
+    // clk_cl.digital_write(High);
 
-    let clk_v_power = controllers[2].get_pin(13);
-    clk_v_power.mode(Output);
-    clk_v_power.digital_write(High);
+    // let clk_valve_i = controllers[2].get_pin(4);
+    // clk_valve_i.mode(Output);
+    // clk_valve_i.digital_write(High);
 
-    let clk_i_power = controllers[2].get_pin(15);
-    clk_i_power.mode(Output);
-    clk_i_power.digital_write(High);
+    // let clk_valve_v = controllers[0].get_pin(26);
+    // clk_valve_v.mode(Output);
+    // clk_valve_v.digital_write(High);
 
-    let clk_tc_1 = controllers[0].get_pin(10);
-    clk_tc_1.mode(Output);
-    clk_tc_1.digital_write(High);
+    // let clk_v_power = controllers[2].get_pin(13);
+    // clk_v_power.mode(Output);
+    // clk_v_power.digital_write(High);
 
-    let clk_tc_2 = controllers[0].get_pin(20);
-    clk_tc_2.mode(Output);
-    clk_tc_2.digital_write(High);
+    // let clk_i_power = controllers[2].get_pin(15);
+    // clk_i_power.mode(Output);
+    // clk_i_power.digital_write(High);
 
-    let clk_ds = controllers[3].get_pin(16);
-    clk_ds.mode(Output);
-    clk_ds.digital_write(High);
+    // let clk_tc_1 = controllers[0].get_pin(10);
+    // clk_tc_1.mode(Output);
+    // clk_tc_1.digital_write(High);
 
-    let clk_rtd = controllers[2].get_pin(11);
-    clk_rtd.mode(Output);
-    clk_rtd.digital_write(High);
+    // let clk_tc_2 = controllers[0].get_pin(20);
+    // clk_tc_2.mode(Output);
+    // clk_tc_2.digital_write(High);
 
-    // others 
-    let clk_spi0 = controllers[0].get_pin(5);
-    clk_spi0.mode(Output);
-    clk_spi0.digital_write(High);
+    // let clk_ds = controllers[3].get_pin(16);
+    // clk_ds.mode(Output);
+    // clk_ds.digital_write(High);
 
-    let clk_spi1 = controllers[0].get_pin(13);
-    clk_spi1.mode(Output);
-    clk_spi1.digital_write(High);
+    // let clk_rtd = controllers[2].get_pin(11);
+    // clk_rtd.mode(Output);
+    // clk_rtd.digital_write(High);
 
-    let clk_brd_temp = controllers[0].get_pin(23);
-    clk_brd_temp.mode(Output);
-    clk_brd_temp.digital_write(High);
+    // // others 
+    // let clk_spi0 = controllers[0].get_pin(5);
+    // clk_spi0.mode(Output);
+    // clk_spi0.digital_write(High);
 
-    let clk_tc_cj = controllers[2].get_pin(23);
-    clk_tc_cj.mode(Output);
-    clk_tc_cj.digital_write(High);
+    // let clk_spi1 = controllers[0].get_pin(13);
+    // clk_spi1.mode(Output);
+    // clk_spi1.digital_write(High);
+
+    // let clk_brd_temp = controllers[0].get_pin(23);
+    // clk_brd_temp.mode(Output);
+    // clk_brd_temp.digital_write(High);
+
+    // let clk_tc_cj = controllers[2].get_pin(23);
+    // clk_tc_cj.mode(Output);
+    // clk_tc_cj.digital_write(High);
 }

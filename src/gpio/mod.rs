@@ -19,8 +19,6 @@ use std::{ffi::CString, sync::{Arc, Mutex}};
 const GPIO_BASE_REGISTERS: [off_t; 4] = [0x44E0_7000, 0x4804_C000, 0x481A_C000, 0x481A_E000];
 const GPIO_REGISTER_SIZE: size_t = 0xFFF;
 
-// cs number -> gpio[0,1,2][pin]
-
 const GPIO_OE_REGISTER: isize = 0x134;
 const GPIO_DATAOUT_REGISTER: isize = 0x13C;
 const GPIO_DATAIN_REGISTER: isize = 0x138;

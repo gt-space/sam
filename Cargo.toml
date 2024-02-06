@@ -6,9 +6,9 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rand = "0.8.5"
-quick-protobuf = "0.8.0"
 spidev = "0.5.1"
 dns-lookup = "2.0.2"
-fs-protobuf-rust = { git = "ssh://git@github-research.gatech.edu/YJSP/fs-protobuf-rust" }
+common = { git = "ssh://git@github-research.gatech.edu/YJSP/common" }
 libc = "0.2.150"
+postcard = { version = "1.0.8", features = ["alloc"] }
+chrono = "0.4"

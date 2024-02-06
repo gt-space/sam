@@ -1,8 +1,4 @@
-use fs_protobuf_rust::compiled::mcfs::command;
-use fs_protobuf_rust::compiled::mcfs::core;
-use fs_protobuf_rust::compiled::mcfs::board;
-use quick_protobuf::Error;
-use quick_protobuf::deserialize_from_slice;
+use common::comm::SamControlMessage;
 use std::fs::File;
 
 use std::io::Write;
@@ -17,26 +13,23 @@ pub fn begin(gpio_controllers: Vec<Arc<Gpio>>) {
     loop {
         let (num_bytes, _src_addr) = socket.recv_from(&mut buf).expect("no data received");
         println!("{:?}", num_bytes);
-        let deserialized_result: Result<core::Message, Error> = deserialize_from_slice(&buf);
+        let deserialized_result = postcard::from_bytes::<SamControlMessage>(&buf[..num_bytes]);
         println!("{:#?}", deserialized_result);
         match deserialized_result {
-            Ok(message) => match message.content {
-                core::mod_Message::OneOfcontent::command(command) => execute(command, gpio_controllers.clone()),
-                core::mod_Message::OneOfcontent::data(..) => println!("Data"),
-                core::mod_Message::OneOfcontent::status(..) => println!("Command"),
-                _ => println!("Other"),
+            Ok(message) => {
+                execute(message, gpio_controllers.clone());
             },
             Err(_error) => println!("Bad"),
         };
     }
 }
 
-fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
-    match command.command {
-        command::mod_Command::OneOfcommand::set_led(set_led_command) => {
-            let led = set_led_command.led.unwrap();
-            match set_led_command.state {
-                board::LEDState::LED_ON => match led.channel {
+fn execute(command: SamControlMessage, gpio_controllers: Vec<Arc<Gpio>>) {
+    match command {
+       SamControlMessage::SetLed { channel, on } => {
+            //let led = set_led_command.led.unwrap();
+            match on {
+                true => match channel {
                     0 => {
                         let mut file: File = std::fs::OpenOptions::new()
                             .write(true)
@@ -71,7 +64,7 @@ fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
                     }
                     _ => println!("Error"),
                 },
-                board::LEDState::LED_OFF => match led.channel {
+                false => match channel {
                     0 => {
                         let mut file: File = std::fs::OpenOptions::new()
                             .write(true)
@@ -109,15 +102,13 @@ fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
             }
         }
 
-        command::mod_Command::OneOfcommand::click_valve(click_valve_command) => {
-            let valve = click_valve_command.valve.unwrap();
-            match click_valve_command.state {
-                board::ValveState::VALVE_OPEN => match valve.channel {
+        SamControlMessage::ActuateValve { channel, open } => {
+            match open {
+                true => match channel {
                     1 => {
                         let pin = gpio_controllers[0].get_pin(8);
                         pin.mode(Output);
                         pin.digital_write(High);
-
                     }
                     2 => {
                         let pin = gpio_controllers[2].get_pin(16);
@@ -128,7 +119,6 @@ fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
                         let pin = gpio_controllers[2].get_pin(17);
                         pin.mode(Output);
                         pin.digital_write(High);
-
                     }
                     4 => {
                         let pin = gpio_controllers[2].get_pin(25);
@@ -147,7 +137,7 @@ fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
                     }
                     _ => println!("Error"),
                 },
-                board::ValveState::VALVE_CLOSED => match valve.channel {
+                false => match channel {
                     1 => {
                         let pin = gpio_controllers[0].get_pin(8);
                         pin.mode(Output);
@@ -184,28 +174,5 @@ fn execute(command: command::Command, gpio_controllers: Vec<Arc<Gpio>>) {
             }
 
         }
-        _ => println!("Unknown command"),
-
     }
 }
-
-// For testing only.
-// pub fn open_valve(id: u32) {
-//     let command = command::Command {
-//         command: command::mod_Command::OneOfcommand::click_valve(
-//             command::ClickValve { 
-//                 valve: (Some(board::ChannelIdentifier {board_id: 10, channel_type: board::ChannelType::VALVE, channel: id})), 
-//                 state: (board::ValveState::VALVE_OPEN)
-//     })};
-//     execute(command);
-// }
-
-// pub fn close_valve(id: u32) {
-//     let command = command::Command {
-//         command: command::mod_Command::OneOfcommand::click_valve(
-//             command::ClickValve { 
-//                 valve: (Some(board::ChannelIdentifier {board_id: 10, channel_type: board::ChannelType::VALVE, channel: id})), 
-//                 state: (board::ValveState::VALVE_CLOSED)
-//     })};
-//     execute(command);
-// }

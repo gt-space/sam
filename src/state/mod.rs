@@ -3,8 +3,7 @@ use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
 use crate::{discovery::get_ips, adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings}, data::data_loop::data_message_formation, gpio::Gpio};
 
-// const FC_ADDR: &str = "flight-computer-01.local";
-const FC_ADDR: &str = "patrick-XPS-15-9500.local";
+const FC_ADDR: &str = "Jeffs-MacBook-Pro.local";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
 pub struct Data {
@@ -40,7 +39,6 @@ pub enum State {
     ConnectToFc,
     InitAdcs,
     PollAdcs,
-    // SendData,
 }
 
 impl State {
@@ -136,20 +134,22 @@ impl State {
                 for adc in data.adcs.as_mut().unwrap() {
                     adc.init_gpio(data.curr_measurement);
                     data.curr_measurement = Some(adc.measurement);
-                    let mut measurement: Vec<f64> = Vec::new();
                     
                     // Read ADC
-                    let data_serialized = adc.get_adc_reading(data.curr_iteration);
-                    measurement.push(data_serialized);
+                    let (raw_value, unix_timestamp) = adc.get_adc_reading(data.curr_iteration);
 
                     // Write ADC for next iteration
                     adc.write_iteration(data.curr_iteration);
                 
-                    let message = data_message_formation(adc.measurement.clone(), measurement, data.curr_iteration - 1);
+                    let message = data_message_formation(
+                        adc.measurement.clone(), 
+                        common::comm::RawDataPoint { value: raw_value, timestamp: unix_timestamp }, 
+                        data.curr_iteration - 1
+                    );
 
                     if let Some(socket_addr) = data.flight_computer {
                         data.data_socket
-                        .send_to(&message, socket_addr)
+                        .send_to(&message.unwrap(), socket_addr)
                         .expect("couldn't send data");
                     }
                 }
