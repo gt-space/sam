@@ -25,8 +25,8 @@ fn generate_node_data(data: RawDataPoint, iteration: u64, measurement: adc::Meas
 fn iteration_to_node_id(measurement: adc::Measurement, iteration: u64) -> Option<u32> {
     match measurement {
         adc::Measurement::CurrentLoopPt | adc::Measurement::IValve | adc::Measurement::VValve => {
-            // return u32::try_from((iteration % 6) + 1).ok();
-            return u32::try_from((iteration % 2) + 1).ok();
+            return u32::try_from((iteration % 6) + 1).ok();
+            // return u32::try_from((iteration % 2) + 1).ok();
         }
         adc::Measurement::VPower => {
             return u32::try_from((iteration % 5) + 1).ok();

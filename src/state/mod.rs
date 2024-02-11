@@ -73,7 +73,7 @@ impl State {
                 //let adc_valve = adc::ADC::new(adc::Measurement::VValve, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
                 //let adc_tc2 = adc::ADC::new(adc::Measurement::Tc2, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
 
-                let mut adcs: Vec<adc::ADC> = Vec::new();
+                let mut adcs: Vec<adc::ADC> = Vec::with_capacity(10);
  
                 adcs.push(adc_cl);
                 //adcs.push(board_power);
