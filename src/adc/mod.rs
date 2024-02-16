@@ -247,13 +247,6 @@ impl ADC {
 
             Measurement::Tc1 |
             Measurement::Tc2 => {
-                // match iteration % 3 {
-                //     0 => { self.write_reg(0x09, 0x40); self.write_reg(0x03, 0x0A); } 
-                //     0 => { self.write_reg(0x02, 0x10 | 0x00); self.write_reg(0x08, 0x02); }
-                //     1 => { self.write_reg(0x02, 0x30 | 0x02); self.write_reg(0x08, 0x08); }
-                //     2 => { self.write_reg(0x02, 0x50 | 0x04); self.write_reg(0x08, 0x20); }
-                //     _ => println!("Failed register write — could not mod iteration")
-                // }
                 match iteration % 4 {
                     0 => { self.write_reg(0x03, 0x08); self.write_reg(0x09, 0x40); }
                     1 => { self.write_reg(0x02, 0x10 | 0x00); self.write_reg(0x08, 0x02); }
@@ -275,7 +268,7 @@ impl ADC {
 
         let mut reading = value2;
 
-        if self.measurement == Measurement::CurrentLoopPt {
+        if self.measurement == Measurement::CurrentLoopPt || self.measurement == Measurement::IValve {
             reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64));
             //println!("CL {}: {} ", iteration%6, reading);
         }
@@ -298,8 +291,8 @@ impl ADC {
                 reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)) * 1000.0;
                 let ambient = reading * 0.403 - 26.987;
                 self.ambient_temp = ambient;
-                self.write_reg(0x09, 0x0);
-                self.write_reg(0x03, 0x0D);
+                self.write_reg(0x09, 0x0); // reset sysmon
+                self.write_reg(0x03, 0x0D); // reset PGA gain
             } else {
                 if self.measurement != Measurement::DiffSensors {
                     // do TC stuff 

@@ -1,9 +1,10 @@
 use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc};
+use common::comm::DataPoint;
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
-use crate::{discovery::get_ips, adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings}, data::data_loop::data_message_formation, gpio::Gpio};
+use crate::{discovery::get_ips, adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC}, data::data_loop::{generate_data_point, serialize_data}, gpio::Gpio};
 
-const FC_ADDR: &str = "Jeffs-MacBook-Pro.local";
+const FC_ADDR: &str = "server-01.local";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
 pub struct Data {
@@ -13,7 +14,8 @@ pub struct Data {
     adcs: Option<Vec<adc::ADC>>,
     state_num: u32,
     curr_measurement: Option<adc::Measurement>,
-    curr_iteration: u64
+    curr_iteration: u64,
+    data_points: Vec<DataPoint>
 }
 
 impl Data {
@@ -25,7 +27,8 @@ impl Data {
             adcs: None,
             state_num: 0,
             curr_measurement: None,
-            curr_iteration: 0
+            curr_iteration: 0,
+            data_points: Vec::with_capacity(9)
         }
     }
 }
@@ -66,20 +69,27 @@ impl State {
                 let ref_controllers = Rc::new(gpio_controller_mappings(controllers));
                 let ref_drdy = Rc::new(data_ready_mappings(controllers));
         
-                //let adc_ds = adc::ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
-                let adc_cl = adc::ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
-                //let board_power = adc::ADC::new(adc::Measurement::VPower, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
-                //let board_current = adc::ADC::new(adc::Measurement::IPower, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
-                //let adc_valve = adc::ADC::new(adc::Measurement::VValve, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
-                //let adc_tc2 = adc::ADC::new(adc::Measurement::Tc2, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let ds = ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let cl = ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let board_power = ADC::new(adc::Measurement::VPower, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let board_current = ADC::new(adc::Measurement::IPower, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let vvalve = ADC::new(adc::Measurement::VValve, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let ivalve = ADC::new(adc::Measurement::IValve, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let rtd = ADC::new(adc::Measurement::Rtd, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let tc1 = ADC::new(adc::Measurement::Tc1, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
+                let tc2 = ADC::new(adc::Measurement::Tc2, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
 
-                let mut adcs: Vec<adc::ADC> = Vec::with_capacity(10);
+                let mut adcs: Vec<adc::ADC> = Vec::with_capacity(9);
  
-                adcs.push(adc_cl);
-                //adcs.push(board_power);
-                //adcs.push(board_current);
-                //adcs.push(adc_valve);
-                //adcs.push(adc_tc2);
+                adcs.push(ds);
+                adcs.push(cl);
+                adcs.push(board_power);
+                adcs.push(board_current);
+                adcs.push(vvalve);
+                adcs.push(ivalve);
+                adcs.push(rtd);
+                adcs.push(tc1);
+                adcs.push(tc2);
 
                 pull_gpios_high(controllers);
                 
@@ -131,6 +141,7 @@ impl State {
             }
 
             State::PollAdcs => {
+                data.data_points.clear();
                 for adc in data.adcs.as_mut().unwrap() {
                     adc.init_gpio(data.curr_measurement);
                     data.curr_measurement = Some(adc.measurement);
@@ -141,17 +152,22 @@ impl State {
                     // Write ADC for next iteration
                     adc.write_iteration(data.curr_iteration);
                 
-                    let message = data_message_formation(
+                    let data_point = generate_data_point(
+                        raw_value, 
+                        unix_timestamp, 
+                        data.curr_iteration - 1,
                         adc.measurement.clone(), 
-                        common::comm::RawDataPoint { value: raw_value, timestamp: unix_timestamp }, 
-                        data.curr_iteration - 1
                     );
 
-                    if let Some(socket_addr) = data.flight_computer {
-                        data.data_socket
-                        .send_to(&message.unwrap(), socket_addr)
-                        .expect("couldn't send data");
-                    }
+                    data.data_points.push(data_point)
+                }
+
+                let serialized = serialize_data(&data.data_points);
+
+                if let Some(socket_addr) = data.flight_computer {
+                    data.data_socket
+                    .send_to(&serialized.unwrap(), socket_addr)
+                    .expect("couldn't send data to flight computer");
                 }
                 data.curr_iteration += 1;
                 State::PollAdcs
