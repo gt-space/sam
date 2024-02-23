@@ -1,3 +1,4 @@
+use jeflog::fail;
 use spidev::spidevioctl::SpidevTransfer;
 use spidev::Spidev;
 use std::sync::Arc;
@@ -8,7 +9,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::gpio::{Gpio, Pin, PinMode::{Output, Input}, PinValue::{High, Low}};
-use crate::tc::type_k_tables::typek_convert;
+use crate::tc::typek_convert;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Measurement {
@@ -86,7 +87,6 @@ impl ADC {
 
     pub fn init_regs(&mut self) {
         // Read initial registers
-        println!("Reading initial register states");
         self.read_regs(0, 17);
 
         // delay for at least 4000*clock period
@@ -94,20 +94,17 @@ impl ADC {
         thread::sleep(time::Duration::from_millis(100));
 
         // Write to registers
-        println!("Writing to registers");
-
         match self.measurement {
             Measurement::CurrentLoopPt | 
-            Measurement::IValve |
-            Measurement::VValve | 
             Measurement::VPower |
-            Measurement::IPower => {
+            Measurement::IPower |
+            Measurement::IValve |
+            Measurement::VValve => {
                 self.write_reg(0x03, 0x00);
                 self.write_reg(0x04, 0x1E);
                 // self.write_reg(0x08, 0x40);
-                self.write_reg(0x08, 0x00);
+                // self.write_reg(0x08, 0x00);
                 self.write_reg(0x05, 0x0A);
-                println!("here");
             }
 
             Measurement::Rtd => {
@@ -132,8 +129,8 @@ impl ADC {
         thread::sleep(time::Duration::from_millis(100));
 
         // Read registers
-        println!("Reading new register states");
         self.read_regs(0, 17);
+
     }
     
     pub fn reset_status(&mut self) {
@@ -147,7 +144,6 @@ impl ADC {
         let mut rx_buf_rdata = [ 0x00];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
         let _status = self.spidev.transfer(&mut transfer);
-        //thread::sleep(time::Duration::from_millis(1000));
         thread::sleep(time::Duration::from_millis(1));
     }
 
@@ -166,7 +162,11 @@ impl ADC {
         tx_buf_readreg[1] = num_regs;
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_readreg, &mut rx_buf_readreg);
         let _status = self.spidev.transfer(&mut transfer);
+        
         println!("data: {:?}", rx_buf_readreg);
+        if rx_buf_readreg == [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ] {
+            fail!("Failed to write and read correct register values");
+        }
     }
     
     pub fn write_reg(&mut self, reg: u8, data: u8) {
@@ -198,9 +198,7 @@ impl ADC {
 
     pub fn write_iteration(&mut self, iteration: u64) {
         match self.measurement {
-            Measurement::CurrentLoopPt | 
-            Measurement::IValve |
-            Measurement::VValve => {
+            Measurement::CurrentLoopPt => {
                 match iteration % 6 {
                     0 => { self.write_reg(0x02, 0x00 | 0x0C); }
                     1 => { self.write_reg(0x02, 0x10 | 0x0C); }
@@ -208,9 +206,23 @@ impl ADC {
                     3 => { self.write_reg(0x02, 0x30 | 0x0C); }
                     4 => { self.write_reg(0x02, 0x40 | 0x0C); }
                     5 => { self.write_reg(0x02, 0x50 | 0x0C); }
-                    _ => println!("Failed register write — could not mod iteration")
+                    _ => fail!("Failed register write — could not mod iteration")
                 }
             }
+
+            Measurement::IValve |
+            Measurement::VValve => {
+                match iteration % 6 {
+                    0 => { self.write_reg(0x02, 0x50 | 0x0C); }
+                    1 => { self.write_reg(0x02, 0x40 | 0x0C); }
+                    2 => { self.write_reg(0x02, 0x30 | 0x0C); }
+                    3 => { self.write_reg(0x02, 0x20 | 0x0C); }
+                    4 => { self.write_reg(0x02, 0x10 | 0x0C); }
+                    5 => { self.write_reg(0x02, 0x00 | 0x0C); }
+                    _ => fail!("Failed register write — could not mod iteration")
+                }
+            }
+
             Measurement::VPower => {
                 match iteration % 5 {
                     0 => { self.write_reg(0x02, 0x00 | 0x0C); }
@@ -218,21 +230,21 @@ impl ADC {
                     2 => { self.write_reg(0x02, 0x20 | 0x0C); }
                     3 => { self.write_reg(0x02, 0x30 | 0x0C); }
                     4 => { self.write_reg(0x02, 0x40 | 0x0C); }
-                    _ => println!("Failed register write — could not mod iteration")
+                    _ => fail!("Failed register write — could not mod iteration")
                 }
             }
             Measurement::IPower => {
                 match iteration % 2 {
                     0 => { self.write_reg(0x02, 0x00 | 0x0C); }
                     1 => { self.write_reg(0x02, 0x10 | 0x0C); }
-                    _ => println!("Failed register write — could not mod iteration")
+                    _ => fail!("Failed register write — could not mod iteration")
                 }
             }
             Measurement::Rtd => {
                 match iteration % 2 {
                     0 => { self.write_reg(0x02, 0x45); self.write_reg(0x05, 0x10); } 
                     1 => { self.write_reg(0x02, 0x21); self.write_reg(0x05, 0x14); } 
-                    _ => println!("Failed register write — could not mod iteration")
+                    _ => fail!("Failed register write — could not mod iteration")
                 }
             }
 
@@ -241,7 +253,7 @@ impl ADC {
                     0 => { self.write_reg(0x02, 0x54); }
                     1 => { self.write_reg(0x02, 0x32); }
                     2 => { self.write_reg(0x02, 0x10); }
-                    _ => println!("Failed register write — could not mod iteration")
+                    _ => fail!("Failed register write — could not mod iteration")
                 }
             }
 
@@ -252,7 +264,7 @@ impl ADC {
                     1 => { self.write_reg(0x02, 0x10 | 0x00); self.write_reg(0x08, 0x02); }
                     2 => { self.write_reg(0x02, 0x30 | 0x02); self.write_reg(0x08, 0x08); }
                     3 => { self.write_reg(0x02, 0x50 | 0x04); self.write_reg(0x08, 0x20); }
-                    _ => println!("Failed register write — could not mod iteration")
+                    _ => fail!("Failed register write — could not mod iteration")
                 }
             }
         }
@@ -270,15 +282,12 @@ impl ADC {
 
         if self.measurement == Measurement::CurrentLoopPt || self.measurement == Measurement::IValve {
             reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64));
-            //println!("CL {}: {} ", iteration%6, reading);
         }
-        if self.measurement == Measurement::VPower { 
-            reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)) * 11.0; // 0 ref
-            //println!("PWR {}: {} ", iteration%5, reading);
+        if self.measurement == Measurement::VPower || self.measurement == Measurement::VValve { 
+            reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)) * 11.0; // 0 ref
         }
         if self.measurement == Measurement::IPower {
             reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
-            //println!("CURR {}: {} ", iteration%2, reading);
         }
         if self.measurement == Measurement::Rtd {
             reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
@@ -295,9 +304,13 @@ impl ADC {
                 self.write_reg(0x03, 0x0D); // reset PGA gain
             } else {
                 if self.measurement != Measurement::DiffSensors {
-                    // do TC stuff 
-                    reading = (typek_convert(self.ambient_temp as f32, reading as f32) + 273.15) as f64;
-                    //println!("tc {}: {}", iteration%3, reading);
+                    // convert to mv
+                    reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032; // gain of 32
+
+                    if self.measurement != Measurement::DiffSensors {
+                        // TC 
+                        reading = (typek_convert(self.ambient_temp as f32, reading as f32) + 273.15) as f64;
+                    }
                 }
             }
         }

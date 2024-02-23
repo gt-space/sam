@@ -1,14 +1,19 @@
-use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr, TcpStream, UdpSocket}, sync::{Arc, Mutex}, io::Write};
 use common::comm::DataPoint;
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
-use crate::{discovery::get_ips, adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC}, data::data_loop::{generate_data_point, serialize_data}, gpio::Gpio};
+use crate::{discovery::get_ips, 
+            adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC}, 
+            data::{generate_data_point, serialize_data}, 
+            gpio::Gpio};
+use jeflog::{task, pass, fail};
 
 const FC_ADDR: &str = "server-01.local";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
 pub struct Data {
     ip_addresses: HashMap<String, Option<IpAddr>>,
+    //pub data_stream: Option<TcpStream>,
     pub data_socket: UdpSocket,
     flight_computer: Option<SocketAddr>,
     adcs: Option<Vec<adc::ADC>>,
@@ -100,10 +105,12 @@ impl State {
             }
 
             State::DeviceDiscovery => {
+                task!("Locating flight computer.");
                 data.ip_addresses = get_ips(&HOSTNAMES);
                 if let Some(ip) = data.ip_addresses.get(FC_ADDR) {
                     match ip {
                         Some(_ipv4_addr) => {
+                            pass!("Found the flight computer at: {}", _ipv4_addr.to_string());
                             State::ConnectToFc
                         },
                         None => {
@@ -111,11 +118,27 @@ impl State {
                         }
                     }
                 } else {
+                    fail!("Failed to locate the flight computer. Retrying.");
                     State::DeviceDiscovery
                 }
             }
 
             State::ConnectToFc => {
+                // let fc_addr = data.ip_addresses.get(FC_ADDR).unwrap().unwrap();
+                // let socket_addr = SocketAddr::new(fc_addr, 4573);
+                
+                // match TcpStream::connect(socket_addr) {
+                //     Ok(stream) => {
+                //         data.flight_computer = Some(socket_addr);
+                //         data.data_stream = Some(stream);
+                //         pass!("Connected to the flight computer");
+                //         State::InitAdcs
+                //     },
+                //     Err(e) => {
+                //         fail!("Failed to connect to the flight computer: {}", e);
+                //         State::ConnectToFc
+                //     }
+                // }
                 let fc_addr = data.ip_addresses.get(FC_ADDR).unwrap().unwrap();
                 let socket_addr = SocketAddr::new(fc_addr, 4573);
                 
@@ -128,7 +151,6 @@ impl State {
                 for adc in data.adcs.as_mut().unwrap() {
                     adc.init_gpio(data.curr_measurement);
                     data.curr_measurement = Some(adc.measurement);
-                    println!("Resetting ADC");
                     adc.reset_status();
 
                     adc.init_regs();
@@ -137,6 +159,7 @@ impl State {
                     adc.write_iteration(data.curr_iteration);
                 }
                 data.curr_iteration += 1;
+                
                 State::PollAdcs
             }
 
@@ -164,11 +187,25 @@ impl State {
 
                 let serialized = serialize_data(&data.data_points);
 
+                // if let Some(mut stream) = data.data_stream.take() {
+                //     match stream.write(&serialized.unwrap()) {
+                //         Ok(_) => {
+                //             //pass!("Data sent to flight computer successfully");
+                //         }
+                //         Err(e) => {
+                //             fail!("Failed to send data to flight computer: {}", e);
+                //         }
+                //     }
+                // } else {
+                //     fail!("TCP stream is not available");
+                // }
+
                 if let Some(socket_addr) = data.flight_computer {
                     data.data_socket
                     .send_to(&serialized.unwrap(), socket_addr)
                     .expect("couldn't send data to flight computer");
                 }
+
                 data.curr_iteration += 1;
                 State::PollAdcs
             }
