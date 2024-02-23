@@ -1,9 +1,3 @@
-use std::{thread, sync::Arc};
-
-use adc::open_controllers;
-use command::command_loop::begin;
-use gpio::Gpio;
-
 pub mod gpio;
 pub mod adc;
 pub mod command;
@@ -12,7 +6,11 @@ pub mod discovery;
 pub mod state;
 pub mod tc;
 
-// https://github.com/rust-embedded/rust-spidev/blob/master/examples/spidev-bidir.rs
+use std::{thread, sync::Arc};
+use adc::open_controllers;
+use command::begin;
+use gpio::Gpio;
+
 fn main() {
     let controllers = open_controllers();
     let controllers1 = controllers.clone();

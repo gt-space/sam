@@ -1,5 +1,6 @@
 [package]
-name = "fs-sam-software"
+name = "sam"
+authors = ["Renee Garg"]
 version = "0.1.0"
 edition = "2021"
 
@@ -12,3 +13,4 @@ common = { git = "ssh://git@github-research.gatech.edu/YJSP/common" }
 libc = "0.2.150"
 postcard = { version = "1.0.8", features = ["alloc"] }
 chrono = "0.4"
+jeflog = "0.1.0"

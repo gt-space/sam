@@ -1,10 +1,10 @@
-# Fullscale SAM Software
+# SAM Software
 ---
-Software powering the BeagleBone Black flight computer onboard Fullscale.
+Software enabling vehicle sensor data acquisition and valve state control onboard a liquid rocket.
 
 ## Installation
 ---
-The Fullscale SAM software will primarily be running Rust code. As such, it is necessary to install Rust along with its compiler (rustc) and package/project manager (Cargo). This can be done by pasting the following snippet into a command prompt:
+SAM software will primarily be running Rust code. As such, it is necessary to install Rust along with its compiler (rustc) and package/project manager (Cargo). This can be done by pasting the following snippet into a command prompt:
 
 `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
 
@@ -14,22 +14,22 @@ Additionally, this source code will be developed in and for a Linux system. Ther
 
 ## Running
 ---
-Fullscale's flight software can be compiled and ran on development computers with just the two following commands:
+SAM software can be compiled and ran on development computers with just the two following commands:
 
 `cargo build`
 
 `cargo run`
 
-However, come time for it to actually run on the BeagleBone Black flight computer, it will be cross-compiled. This means that the product will be compiled on development computers and the binary will subsequently be transfered to the flight computer. When this happens, a tool called Cross should be used when compiling the software:
+However, come time for it to actually run on the BeagleBone Black, it will be cross-compiled. This means that the product will be compiled on development computers and the binary will subsequently be transfered to the beaglebone. When this happens, a tool called Cross should be used when compiling the software:
 
 `cargo install -f cross`
 
 This tool additionally relies on [Docker](https://docs.docker.com/engine/install/ubuntu/) being installed.
 Use this command to compile to the correct architecture:
 
-`cross build --target armv7-unknown-linux-gnueabihf`
+`cross build --target armv7-unknown-linux-gnueabihf --release`
 
-The output binary will be placed into ./target/armv7-unknown-linux-gnueabihf/debug/fs-flight-computer. Copy this over to the BeagleBone to run it.
+The output binary will be placed into ./target/armv7-unknown-linux-gnueabihf/release/fs-flight-computer. Copy this over to the BeagleBone to run it.
 
 ## IDE Setup (VSCode)
 ---
