@@ -34,8 +34,15 @@ fn iteration_to_node_id(measurement: adc::Measurement, iteration: u64) -> Option
         adc::Measurement::IPower | adc::Measurement::Rtd => {
             return u32::try_from((iteration % 2) + 1).ok();
         }
-        adc::Measurement::DiffSensors | adc::Measurement::Tc1 | adc::Measurement::Tc2 => {
+        adc::Measurement::DiffSensors => {
             return u32::try_from((iteration % 3) + 1).ok();
+        }
+        adc::Measurement::Tc1 => {
+            return u32::try_from(iteration % 4).ok();
+
+        }
+        adc::Measurement::Tc2 => {
+            return u32::try_from((iteration % 4) + 3).ok();
         }
     }
 }
