@@ -2,7 +2,6 @@ use jeflog::fail;
 use spidev::spidevioctl::SpidevTransfer;
 use spidev::Spidev;
 use std::sync::Arc;
-use std::time::{UNIX_EPOCH, SystemTime};
 use std::{thread, time};
 
 use std::collections::HashMap;
@@ -29,7 +28,7 @@ pub struct ADC {
     pub spidev: Rc<Spidev>,
     ambient_temp: f64,
     gpio_mappings: Rc<HashMap<Measurement, Pin>>,
-    drdy_mappings: Rc<HashMap<Measurement, Pin>>
+    drdy_mappings: Rc<HashMap<Measurement, Pin>>,
 }
 
 impl ADC {
@@ -40,7 +39,7 @@ impl ADC {
             spidev: spidev,
             ambient_temp: 0.0,
             gpio_mappings: gpio_mappings,
-            drdy_mappings: drdy_mappings
+            drdy_mappings: drdy_mappings,
         }
     }
 
@@ -163,7 +162,7 @@ impl ADC {
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_readreg, &mut rx_buf_readreg);
         let _status = self.spidev.transfer(&mut transfer);
         
-        println!("data: {:?}", rx_buf_readreg);
+        // println!("{:?} regs: {:?}", self.measurement, rx_buf_readreg);
         if rx_buf_readreg == [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ] {
             fail!("Failed to write and read correct register values");
         }
@@ -183,15 +182,17 @@ impl ADC {
             self.measurement == Measurement::Tc1 || 
             self.measurement == Measurement::Tc2 {
                 // can't use data ready for these
-                thread::sleep(time::Duration::from_micros(700));
+                // thread::sleep(time::Duration::from_micros(700));
             }
         else {
             self.poll_data_ready();
         }
         let val = self.test_read_individual(iteration - 1).try_into().unwrap();
         
-        let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-        let unix_timestamp = start.as_secs_f64();
+        // let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        // let unix_timestamp = start.as_secs_f64();
+
+        let unix_timestamp = 0.0; // change this! 
 
         (val, unix_timestamp)
     }
@@ -271,8 +272,8 @@ impl ADC {
     }
 
     pub fn test_read_individual(&mut self, iteration: u64) -> f64 {
-        let mut tx_buf_rdata = [ 0x12, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
-        let mut rx_buf_rdata = [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ];
+        let mut tx_buf_rdata = [ 0x12, 0x00, 0x00 ];
+        let mut rx_buf_rdata = [ 0x00, 0x00, 0x00 ];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
         let _status = self.spidev.transfer(&mut transfer);
         let value: i16 = ((rx_buf_rdata[1] as i16) << 8) | (rx_buf_rdata[2] as i16);
@@ -280,33 +281,30 @@ impl ADC {
 
         let mut reading = value2;
 
-        if self.measurement == Measurement::CurrentLoopPt || self.measurement == Measurement::IValve {
-            reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64));
-        }
-        if self.measurement == Measurement::VPower || self.measurement == Measurement::VValve { 
-            reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)) * 11.0; // 0 ref
-        }
-        if self.measurement == Measurement::IPower {
-            reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
-        }
-        if self.measurement == Measurement::Rtd {
-            reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
-        }
-        if self.measurement == Measurement::Tc1 ||
-           self.measurement == Measurement::Tc2 || 
-           self.measurement == Measurement::DiffSensors {
-            if iteration % 4 == 0 {
-                // ambient temp 
-                reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)) * 1000.0;
-                let ambient = reading * 0.403 - 26.987;
-                self.ambient_temp = ambient;
-                self.write_reg(0x09, 0x0); // reset sysmon
-                self.write_reg(0x03, 0x0D); // reset PGA gain
-            } else {
-                if self.measurement != Measurement::DiffSensors {
-                    // convert to mv
+        match self.measurement {
+            Measurement::CurrentLoopPt | Measurement::IValve => {
+                reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64));
+            }
+            Measurement::VPower | Measurement::VValve => {
+                reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)) * 11.0; // 0 ref
+            }
+            Measurement::IPower => {
+                reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
+            }
+            Measurement::Rtd => {
+                reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
+            }
+            Measurement::Tc1 | Measurement::Tc2 | Measurement::DiffSensors => {
+                if iteration % 4 == 0 {
+                    // ambient temp 
+                    reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)) * 1000.0;
+                    let ambient = reading * 0.403 - 26.987;
+                    self.ambient_temp = ambient;
+                    self.write_reg(0x09, 0x0); // reset sysmon
+                    self.write_reg(0x03, 0x0D); // reset PGA gain
+                } else {
+                    // convert
                     reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032; // gain of 32
-
                     if self.measurement != Measurement::DiffSensors {
                         // TC 
                         reading = (typek_convert(self.ambient_temp as f32, reading as f32) + 273.15) as f64;
