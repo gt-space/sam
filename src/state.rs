@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::{IpAddr, SocketAddr, TcpStream, UdpSocket}, sync::{Arc, Mutex}, io::Write};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc};
 use common::comm::DataPoint;
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
@@ -13,7 +13,6 @@ const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
 pub struct Data {
     ip_addresses: HashMap<String, Option<IpAddr>>,
-    //pub data_stream: Option<TcpStream>,
     pub data_socket: UdpSocket,
     flight_computer: Option<SocketAddr>,
     adcs: Option<Vec<adc::ADC>>,
@@ -64,7 +63,7 @@ impl State {
 
                 let options = SpidevOptions::new()
                     .bits_per_word(8)
-                    .max_speed_hz(1000000)
+                    .max_speed_hz(10_000_000)
                     .lsb_first(false)
                     .mode(SpiModeFlags::SPI_MODE_1)
                     .build();
@@ -124,21 +123,6 @@ impl State {
             }
 
             State::ConnectToFc => {
-                // let fc_addr = data.ip_addresses.get(FC_ADDR).unwrap().unwrap();
-                // let socket_addr = SocketAddr::new(fc_addr, 4573);
-                
-                // match TcpStream::connect(socket_addr) {
-                //     Ok(stream) => {
-                //         data.flight_computer = Some(socket_addr);
-                //         data.data_stream = Some(stream);
-                //         pass!("Connected to the flight computer");
-                //         State::InitAdcs
-                //     },
-                //     Err(e) => {
-                //         fail!("Failed to connect to the flight computer: {}", e);
-                //         State::ConnectToFc
-                //     }
-                // }
                 let fc_addr = data.ip_addresses.get(FC_ADDR).unwrap().unwrap();
                 let socket_addr = SocketAddr::new(fc_addr, 4573);
                 
@@ -186,19 +170,6 @@ impl State {
                 }
 
                 let serialized = serialize_data(&data.data_points);
-
-                // if let Some(mut stream) = data.data_stream.take() {
-                //     match stream.write(&serialized.unwrap()) {
-                //         Ok(_) => {
-                //             //pass!("Data sent to flight computer successfully");
-                //         }
-                //         Err(e) => {
-                //             fail!("Failed to send data to flight computer: {}", e);
-                //         }
-                //     }
-                // } else {
-                //     fail!("TCP stream is not available");
-                // }
 
                 if let Some(socket_addr) = data.flight_computer {
                     data.data_socket
