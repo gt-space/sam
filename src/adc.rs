@@ -262,9 +262,9 @@ impl ADC {
             Measurement::Tc2 => {
                 match iteration % 4 {
                     0 => { self.write_reg(0x03, 0x08); self.write_reg(0x09, 0x40); }
-                    1 => { self.write_reg(0x02, 0x10 | 0x00); self.write_reg(0x08, 0x02); }
+                    1 => { self.write_reg(0x02, 0x50 | 0x04); self.write_reg(0x08, 0x20); }
                     2 => { self.write_reg(0x02, 0x30 | 0x02); self.write_reg(0x08, 0x08); }
-                    3 => { self.write_reg(0x02, 0x50 | 0x04); self.write_reg(0x08, 0x20); }
+                    3 => { self.write_reg(0x02, 0x10 | 0x00); self.write_reg(0x08, 0x02); }
                     _ => fail!("Failed register write — could not mod iteration")
                 }
             }
