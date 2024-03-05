@@ -294,7 +294,7 @@ impl ADC {
             Measurement::Rtd => {
                 reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
             }
-            Measurement::Tc1 | Measurement::Tc2 | Measurement::DiffSensors => {
+            Measurement::Tc1 | Measurement::Tc2 => {
                 if iteration % 4 == 0 {
                     // ambient temp 
                     reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)) * 1000.0;
@@ -305,11 +305,11 @@ impl ADC {
                 } else {
                     // convert
                     reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032; // gain of 32
-                    if self.measurement != Measurement::DiffSensors {
-                        // TC 
-                        reading = (typek_convert(self.ambient_temp as f32, reading as f32) + 273.15) as f64;
-                    }
+                    reading = (typek_convert(self.ambient_temp as f32, reading as f32) + 273.15) as f64;
                 }
+            }
+            Measurement::DiffSensors => {
+                reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032; // gain of 32
             }
         }
         reading
