@@ -107,10 +107,10 @@ impl ADC {
             }
 
             Measurement::Rtd => {
-                self.write_reg(0x03, 0x00);
+                self.write_reg(0x03, 0x09);
                 self.write_reg(0x04, 0x1E);
-                self.write_reg(0x06, 0x47);
-                //self.write_reg(0x06, 0x07);
+                // self.write_reg(0x06, 0x47);
+                self.write_reg(0x06, 0x07);
                 self.write_reg(0x07, 0x05);
             }
 
@@ -243,8 +243,8 @@ impl ADC {
             }
             Measurement::Rtd => {
                 match iteration % 2 {
-                    0 => { self.write_reg(0x02, 0x45); self.write_reg(0x05, 0x10); } 
-                    1 => { self.write_reg(0x02, 0x21); self.write_reg(0x05, 0x14); } 
+                    0 => { self.write_reg(0x02, 0x12); self.write_reg(0x05, 0x10); } 
+                    1 => { self.write_reg(0x02, 0x34); self.write_reg(0x05, 0x14); } 
                     _ => fail!("Failed register write — could not mod iteration")
                 }
             }
@@ -262,9 +262,9 @@ impl ADC {
             Measurement::Tc2 => {
                 match iteration % 4 {
                     0 => { self.write_reg(0x03, 0x08); self.write_reg(0x09, 0x40); }
-                    1 => { self.write_reg(0x02, 0x50 | 0x04); self.write_reg(0x08, 0x20); }
-                    2 => { self.write_reg(0x02, 0x30 | 0x02); self.write_reg(0x08, 0x08); }
-                    3 => { self.write_reg(0x02, 0x10 | 0x00); self.write_reg(0x08, 0x02); }
+                    1 => { self.write_reg(0x02, 0x50 | 0x04); }
+                    2 => { self.write_reg(0x02, 0x30 | 0x02); }
+                    3 => { self.write_reg(0x02, 0x10 | 0x00); }
                     _ => fail!("Failed register write — could not mod iteration")
                 }
             }
@@ -284,15 +284,20 @@ impl ADC {
         match self.measurement {
             Measurement::CurrentLoopPt | Measurement::IValve => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64));
+                // println!("{:?}: {:?}", (iteration % 6) + 1, reading);
             }
             Measurement::VPower | Measurement::VValve => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)) * 11.0; // 0 ref
+                // println!("{:?}: {:?}", (iteration % 5) + 1, reading);
+                //println!("{:?}: {:?}", (iteration % 6) + 1, reading);
             }
             Measurement::IPower => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
+                // println!("{:?}: {:?}", (iteration % 2) + 1, reading);
             }
             Measurement::Rtd => {
-                reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
+                reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 4.0; // 2.5 ref
+                // println!("{:?}: {:?}", (iteration % 2) + 1, reading);
             }
             Measurement::Tc1 | Measurement::Tc2 => {
                 if iteration % 4 == 0 {
@@ -305,11 +310,16 @@ impl ADC {
                 } else {
                     // convert
                     reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032; // gain of 32
-                    reading = (typek_convert(self.ambient_temp as f32, reading as f32) + 273.15) as f64;
+                    if reading < -6.0 {
+                        reading = 0.0
+                    } else {
+                        reading = (typek_convert(self.ambient_temp as f32, reading as f32) + 273.15) as f64;
+                    }
                 }
             }
             Measurement::DiffSensors => {
                 reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032; // gain of 32
+                // println!("{:?}: {:?}", (iteration % 3) + 1, reading);
             }
         }
         reading
