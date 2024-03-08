@@ -29,6 +29,7 @@ pub struct ADC {
     ambient_temp: f64,
     gpio_mappings: Rc<HashMap<Measurement, Pin>>,
     drdy_mappings: Rc<HashMap<Measurement, Pin>>,
+    write_time: time::Instant,
 }
 
 impl ADC {
@@ -40,6 +41,7 @@ impl ADC {
             ambient_temp: 0.0,
             gpio_mappings: gpio_mappings,
             drdy_mappings: drdy_mappings,
+            write_time: time::Instant::now(),
         }
     }
 
@@ -247,6 +249,7 @@ impl ADC {
                     1 => { self.write_reg(0x02, 0x34); self.write_reg(0x05, 0x14); } 
                     _ => fail!("Failed register write — could not mod iteration")
                 }
+                self.write_time = time::Instant::now();
             }
 
             Measurement::DiffSensors => {
@@ -267,11 +270,19 @@ impl ADC {
                     3 => { self.write_reg(0x02, 0x10 | 0x00); }
                     _ => fail!("Failed register write — could not mod iteration")
                 }
+                self.write_time = time::Instant::now();
             }
         }
     }
 
     pub fn test_read_individual(&mut self, iteration: u64) -> f64 {
+        if self.measurement == Measurement::Tc1 || self.measurement == Measurement::Tc2 || self.measurement == Measurement::Rtd {
+            let duration = self.write_time.elapsed().as_micros() as u64;
+            if duration < 410 {
+                thread::sleep(time::Duration::from_micros(410 - duration));
+            }
+        }
+
         let mut tx_buf_rdata = [ 0x12, 0x00, 0x00 ];
         let mut rx_buf_rdata = [ 0x00, 0x00, 0x00 ];
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_rdata, &mut rx_buf_rdata);
