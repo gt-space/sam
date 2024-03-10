@@ -9,8 +9,9 @@ edition = "2021"
 [dependencies]
 spidev = "0.5.1"
 dns-lookup = "2.0.2"
-common = { git = "ssh://git@github-research.gatech.edu/YJSP/common" }
+common = { git = "https://github.com/gt-space/common" }
 libc = "0.2.150"
 postcard = { version = "1.0.8", features = ["alloc"] }
 chrono = "0.4"
 jeflog = "0.1.0"
+hostname = "0.3.1"
