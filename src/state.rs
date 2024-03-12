@@ -9,11 +9,10 @@ use crate::{discovery::get_ips,
             gpio::Gpio, command};
 use jeflog::{task, pass, fail, warn};
 
-const FC_ADDR: &str = "yjsp-operator-laptop-1.local";
+const FC_ADDR: &str = "server-01.local";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
-// const FC_HEARTBEAT_TIMEOUT: u128 = 5000;
-const FC_HEARTBEAT_TIMEOUT: u128 = 10_000;
+const FC_HEARTBEAT_TIMEOUT: u128 = 5000;
 
 pub struct Data {
     ip_addresses: HashMap<String, Option<IpAddr>>,
