@@ -92,7 +92,7 @@ impl ADC {
 
         // delay for at least 4000*clock period
         // println!("Delaying for 1 second");
-        thread::sleep(time::Duration::from_millis(100));
+        //thread::sleep(time::Duration::from_millis(100));
 
         // Write to registers
         match self.measurement {
@@ -127,7 +127,7 @@ impl ADC {
 
         // delay for at least 4000*clock period
         // println!("Delaying for 1 second");
-        thread::sleep(time::Duration::from_millis(100));
+        //thread::sleep(time::Duration::from_millis(100));
 
         // Read registers
         self.read_regs(0, 17);
@@ -164,7 +164,7 @@ impl ADC {
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_readreg, &mut rx_buf_readreg);
         let _status = self.spidev.transfer(&mut transfer);
         
-        // println!("{:?} regs: {:?}", self.measurement, rx_buf_readreg);
+        println!("{:?} regs: {:?}", self.measurement, rx_buf_readreg);
         if rx_buf_readreg == [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ] {
             fail!("Failed to write and read correct register values");
         }
@@ -295,12 +295,12 @@ impl ADC {
         match self.measurement {
             Measurement::CurrentLoopPt | Measurement::IValve => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64));
-                // println!("{:?}: {:?}", (iteration % 6) + 1, reading);
+                //println!("valve {:?} I: {:?}", (iteration % 6) + 1, reading);
             }
             Measurement::VPower | Measurement::VValve => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)) * 11.0; // 0 ref
                 // println!("{:?}: {:?}", (iteration % 5) + 1, reading);
-                //println!("{:?}: {:?}", (iteration % 6) + 1, reading);
+                //println!("valve {:?} V: {:?}", (iteration % 6) + 1, reading);
             }
             Measurement::IPower => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
@@ -329,7 +329,7 @@ impl ADC {
                 }
             }
             Measurement::DiffSensors => {
-                reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032; // gain of 32
+                reading = ((value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032) / 1000.0; // gain of 32
                 // println!("{:?}: {:?}", (iteration % 3) + 1, reading);
             }
         }
