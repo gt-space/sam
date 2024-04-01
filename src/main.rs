@@ -10,7 +10,6 @@ use std::{thread, sync::Arc};
 use adc::open_controllers;
 use command::begin;
 use gpio::Gpio;
-
 fn main() {
     let controllers = open_controllers();
     let controllers1 = controllers.clone();
@@ -30,8 +29,8 @@ fn main() {
 
 fn init_state(controllers: Vec<Arc<Gpio>>) {
     let mut sam_state = state::State::Init;
-    let mut data = state::Data::new();
+    let mut data = state::Data::new(controllers);
     loop {
-        sam_state = sam_state.next(&mut data, &controllers);
+        sam_state = sam_state.next(&mut data);
     }
 }

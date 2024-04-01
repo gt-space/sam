@@ -90,7 +90,7 @@ impl ADC {
 
         // delay for at least 4000*clock period
         // println!("Delaying for 1 second");
-        thread::sleep(time::Duration::from_millis(100));
+        //thread::sleep(time::Duration::from_millis(100));
 
         // Write to registers
         match self.measurement {
@@ -107,10 +107,10 @@ impl ADC {
             }
 
             Measurement::Rtd => {
-                self.write_reg(0x03, 0x00);
+                self.write_reg(0x03, 0x09);
                 self.write_reg(0x04, 0x1E);
-                self.write_reg(0x06, 0x47);
-                //self.write_reg(0x06, 0x07);
+                // self.write_reg(0x06, 0x47);
+                self.write_reg(0x06, 0x07);
                 self.write_reg(0x07, 0x05);
             }
 
@@ -125,7 +125,7 @@ impl ADC {
 
         // delay for at least 4000*clock period
         // println!("Delaying for 1 second");
-        thread::sleep(time::Duration::from_millis(100));
+        //thread::sleep(time::Duration::from_millis(100));
 
         // Read registers
         self.read_regs(0, 17);
@@ -162,7 +162,7 @@ impl ADC {
         let mut transfer = SpidevTransfer::read_write(&mut tx_buf_readreg, &mut rx_buf_readreg);
         let _status = self.spidev.transfer(&mut transfer);
         
-        // println!("{:?} regs: {:?}", self.measurement, rx_buf_readreg);
+        println!("{:?} regs: {:?}", self.measurement, rx_buf_readreg);
         if rx_buf_readreg == [ 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 ] {
             fail!("Failed to write and read correct register values");
         }
@@ -243,8 +243,8 @@ impl ADC {
             }
             Measurement::Rtd => {
                 match iteration % 2 {
-                    0 => { self.write_reg(0x02, 0x45); self.write_reg(0x05, 0x10); } 
-                    1 => { self.write_reg(0x02, 0x21); self.write_reg(0x05, 0x14); } 
+                    0 => { self.write_reg(0x02, 0x12); self.write_reg(0x05, 0x10); } 
+                    1 => { self.write_reg(0x02, 0x34); self.write_reg(0x05, 0x14); } 
                     _ => fail!("Failed register write — could not mod iteration")
                 }
             }
@@ -262,9 +262,9 @@ impl ADC {
             Measurement::Tc2 => {
                 match iteration % 4 {
                     0 => { self.write_reg(0x03, 0x08); self.write_reg(0x09, 0x40); }
-                    1 => { self.write_reg(0x02, 0x50 | 0x04); self.write_reg(0x08, 0x20); }
-                    2 => { self.write_reg(0x02, 0x30 | 0x02); self.write_reg(0x08, 0x08); }
-                    3 => { self.write_reg(0x02, 0x10 | 0x00); self.write_reg(0x08, 0x02); }
+                    1 => { self.write_reg(0x02, 0x50 | 0x04); }
+                    2 => { self.write_reg(0x02, 0x30 | 0x02); }
+                    3 => { self.write_reg(0x02, 0x10 | 0x00); }
                     _ => fail!("Failed register write — could not mod iteration")
                 }
             }
@@ -284,15 +284,20 @@ impl ADC {
         match self.measurement {
             Measurement::CurrentLoopPt | Measurement::IValve => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64));
+                //println!("valve {:?} I: {:?}", (iteration % 6) + 1, reading);
             }
             Measurement::VPower | Measurement::VValve => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)) * 11.0; // 0 ref
+                // println!("{:?}: {:?}", (iteration % 5) + 1, reading);
+                //println!("valve {:?} V: {:?}", (iteration % 6) + 1, reading);
             }
             Measurement::IPower => {
                 reading = ((value as i32 + 32768) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
+                // println!("{:?}: {:?}", (iteration % 2) + 1, reading);
             }
             Measurement::Rtd => {
-                reading = ((value as i32) as f64) * (2.5 / ((1 << 15) as f64)); // 2.5 ref
+                reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 4.0; // 2.5 ref
+                // println!("{:?}: {:?}", (iteration % 2) + 1, reading);
             }
             Measurement::Tc1 | Measurement::Tc2 => {
                 if iteration % 4 == 0 {
@@ -309,7 +314,8 @@ impl ADC {
                 }
             }
             Measurement::DiffSensors => {
-                reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032; // gain of 32
+                reading = ((value as f64) * (2.5 / ((1 << 15) as f64)) / 0.032) / 1000.0; // gain of 32
+                // println!("{:?}: {:?}", (iteration % 3) + 1, reading);
             }
         }
         reading
@@ -409,7 +415,6 @@ pub fn pull_gpios_high(controllers: &Vec<Arc<Gpio>>) {
                     controllers[0].get_pin(23),
                     controllers[2].get_pin(23)];
 
-    
     for pin in pins.iter() {
         pin.mode(Output);
         pin.digital_write(High);

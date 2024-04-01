@@ -1,15 +1,19 @@
-use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc};
-use common::comm::DataPoint;
+use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc, thread, time::Instant};
+use common::comm::{DataPoint, DataMessage};
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
+use hostname;
 use crate::{discovery::get_ips, 
             adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC}, 
             data::{generate_data_point, serialize_data}, 
             gpio::Gpio};
-use jeflog::{task, pass, fail};
+use jeflog::{task, pass, fail, warn};
+use crate::gpio::{PinMode::Output, PinValue::Low};
 
 const FC_ADDR: &str = "server-01.local";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
+
+const FC_HEARTBEAT_TIMEOUT: u128 = 500;
 
 pub struct Data {
     ip_addresses: HashMap<String, Option<IpAddr>>,
@@ -19,11 +23,13 @@ pub struct Data {
     state_num: u32,
     curr_measurement: Option<adc::Measurement>,
     curr_iteration: u64,
-    data_points: Vec<DataPoint>
+    data_points: Vec<DataPoint>,
+    board_id: Option<String>,
+    gpio_controllers: Vec<Arc<Gpio>>
 }
 
 impl Data {
-    pub fn new() -> Data {
+    pub fn new(gpio_controllers: Vec<Arc<Gpio>>) -> Data {
         Data {
             ip_addresses: HashMap::new(),
             data_socket: UdpSocket::bind(("0.0.0.0", 4573)).expect("Could not bind client socket"),
@@ -32,7 +38,9 @@ impl Data {
             state_num: 0,
             curr_measurement: None,
             curr_iteration: 0,
-            data_points: Vec::with_capacity(9)
+            data_points: Vec::with_capacity(9),
+            board_id: None,
+            gpio_controllers: gpio_controllers
         }
     }
 }
@@ -44,12 +52,13 @@ pub enum State {
     Init,
     DeviceDiscovery,
     ConnectToFc,
+    Identity,
     InitAdcs,
-    PollAdcs,
+    PollAdcs
 }
 
 impl State {
-    pub fn next(self, data: &mut Data, controllers: &Vec<Arc<Gpio>>) -> State {
+    pub fn next(self, data: &mut Data) -> State {
         if data.state_num % 100000 == 0 {
             println!("{:?} {}", self, data.state_num);
         }
@@ -65,13 +74,13 @@ impl State {
                     .bits_per_word(8)
                     .max_speed_hz(10_000_000)
                     .lsb_first(false)
-                    .mode(SpiModeFlags::SPI_MODE_1)
+                    .mode(SpiModeFlags::SPI_CPHA | SpiModeFlags::SPI_NO_CS)
                     .build();
                 spidev.configure(&options).unwrap();
 
                 let ref_spidev: Rc<_> = Rc::new(spidev);
-                let ref_controllers = Rc::new(gpio_controller_mappings(controllers));
-                let ref_drdy = Rc::new(data_ready_mappings(controllers));
+                let ref_controllers = Rc::new(gpio_controller_mappings(&data.gpio_controllers));
+                let ref_drdy = Rc::new(data_ready_mappings(&data.gpio_controllers));
         
                 let ds = ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
                 let cl = ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
@@ -95,16 +104,18 @@ impl State {
                 adcs.push(tc1);
                 adcs.push(tc2);
 
-                pull_gpios_high(controllers);
+                pull_gpios_high(&data.gpio_controllers);
                 
                 data.adcs = Some(adcs);
                 data.data_socket.set_nonblocking(true).expect("set_nonblocking call failed");
+
+                data.board_id = get_board_id();
 
                 State::DeviceDiscovery
             }
 
             State::DeviceDiscovery => {
-                task!("Locating flight computer.");
+                task!("Locating the flight computer.");
                 data.ip_addresses = get_ips(&HOSTNAMES);
                 if let Some(ip) = data.ip_addresses.get(FC_ADDR) {
                     match ip {
@@ -113,6 +124,7 @@ impl State {
                             State::ConnectToFc
                         },
                         None => {
+                            warn!("Failed to locate the flight computer. Retrying.");
                             State::DeviceDiscovery
                         }
                     }
@@ -127,8 +139,61 @@ impl State {
                 let socket_addr = SocketAddr::new(fc_addr, 4573);
                 
                 data.flight_computer = Some(socket_addr);
-                
+
+                task!("Sending Identity messages to the flight computer.");
                 return State::InitAdcs
+            }
+
+            State::Identity => {
+                let mut buf = [0; 65536];
+
+                if let Some(board_id) = data.board_id.clone() {
+                    let identity = DataMessage::Identity(board_id);                    
+                    let data_serialized = postcard::to_allocvec(&identity);
+
+                    if let Some(socket_addr) = data.flight_computer {
+                        data.data_socket
+                        .send_to(&data_serialized.unwrap(), socket_addr)
+                        .expect("Could not send Identity message.");
+                    } else {
+                        fail!("Could not send Identity message.");
+                    }
+                } else {
+                    fail!("Could not send Identity message, invalid board information.");
+                }
+
+                match data.data_socket.recv_from(&mut buf) {
+                    Ok((num_bytes, _src_addr)) => {
+                        let deserialized_result = postcard::from_bytes::<DataMessage>(&buf[..num_bytes]);
+                        println!("{:#?}", deserialized_result);
+                        match deserialized_result {
+                            Ok(message) => {
+                                match message {
+                                    // FC sends identity back 
+                                    DataMessage::Identity(_) => {
+                                        pass!("Received Identity message from the flight computer, monitoring heartbeat");
+    
+                                        let socket_copy = data.data_socket.try_clone();
+                                        let controllers = data.gpio_controllers.clone();
+
+                                        // Spawn heartbeat thread
+                                        thread::spawn(move || {
+                                            monitor_heartbeat(socket_copy.ok().unwrap(), &controllers);
+                                        });
+
+                                        return State::PollAdcs;
+                                    },
+                                    _ => { warn!("Received unexpected message from the flight computer"); return State::Identity; } ,
+                                }
+                            },
+                            Err(_error) => {fail!("Bad message from flight computer"); return State::Identity; },
+                        };
+                    }
+                    Err(_) => {
+                        ();
+                    }
+                };
+                State::Identity
             }
 
             State::InitAdcs => {
@@ -144,7 +209,8 @@ impl State {
                 }
                 data.curr_iteration += 1;
                 
-                State::PollAdcs
+                pass!("Initialized ADCs");
+                State::Identity
             }
 
             State::PollAdcs => {
@@ -168,18 +234,89 @@ impl State {
 
                     data.data_points.push(data_point)
                 }
+                
+                if let Some(board_id) = data.board_id.clone() {
+                    let serialized = serialize_data(board_id, &data.data_points);
 
-                let serialized = serialize_data(&data.data_points);
-
-                if let Some(socket_addr) = data.flight_computer {
-                    data.data_socket
-                    .send_to(&serialized.unwrap(), socket_addr)
-                    .expect("couldn't send data to flight computer");
+                    if let Some(socket_addr) = data.flight_computer {
+                        data.data_socket
+                        .send_to(&serialized.unwrap(), socket_addr)
+                        .expect("couldn't send data to flight computer");
+                    }
                 }
 
                 data.curr_iteration += 1;
+
                 State::PollAdcs
             }
+        }
+    }
+}
+
+fn monitor_heartbeat(socket: UdpSocket, gpio_controllers: &Vec<Arc<Gpio>>) {
+    let mut buf = [0; 65536];
+    let mut last_heartbeat = Instant::now();
+
+    loop {
+        let curr_time = Instant::now();
+        let time_elapsed = curr_time.duration_since(last_heartbeat).as_millis();
+
+        if time_elapsed > FC_HEARTBEAT_TIMEOUT {
+            break
+        }
+
+        // monitor socket for heartbeat messages every ___ MS 
+        match socket.recv_from(&mut buf) {
+            Ok((num_bytes, _src_addr)) => {
+                let deserialized_result = postcard::from_bytes::<DataMessage>(&buf[..num_bytes]);
+                match deserialized_result {
+                    Ok(message) => {
+                        match message {
+                            // FC sends identity back 
+                            DataMessage::FlightHeartbeat => {
+                                let new_hb = Instant::now();
+                                last_heartbeat = new_hb;
+                            },
+                            _ => { }
+                        }
+                    } Err(_) => {
+                        fail!("Failed to deserialize DataMessage from flight computer.")
+                    }
+                }
+            }
+            Err(_) => {
+                ();
+            }
+        }    
+    }
+    abort(gpio_controllers);
+}
+
+fn abort(controllers: &Vec<Arc<Gpio>>) {
+    fail!("Aborting the SAM Board.");
+
+    let pins = vec![controllers[0].get_pin(8),  // valve 1
+                    controllers[2].get_pin(16), // valve 2
+                    controllers[2].get_pin(17), // valve 3
+                    controllers[2].get_pin(25), // valve 4
+                    controllers[2].get_pin(1),  // valve 5
+                    controllers[1].get_pin(14)];// valve 6
+
+    for pin in pins.iter() {
+        pin.mode(Output);
+        pin.digital_write(Low);
+    }
+}
+
+fn get_board_id() -> Option<String> {
+    match hostname::get() {
+        Ok(hostname) => {
+            let name = hostname.to_string_lossy().to_string();
+            Some(name)
+        }
+        Err(e) => {
+            fail!("Error getting board ID for Establish message: {}", e);
+            None
         }
     }
 }

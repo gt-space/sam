@@ -28,7 +28,6 @@ pub fn begin(gpio_controllers: Vec<Arc<Gpio>>) {
 fn execute(command: SamControlMessage, gpio_controllers: Vec<Arc<Gpio>>) {
     match command {
        SamControlMessage::SetLed { channel, on } => {
-            //let led = set_led_command.led.unwrap();
             match on {
                 true => match channel {
                     0 => {
@@ -103,8 +102,8 @@ fn execute(command: SamControlMessage, gpio_controllers: Vec<Arc<Gpio>>) {
             }
         }
 
-        SamControlMessage::ActuateValve { channel, open } => {
-            match open {
+        SamControlMessage::ActuateValve { channel, powered } => {
+            match powered {
                 true => match channel {
                     1 => {
                         let pin = gpio_controllers[0].get_pin(8);

@@ -5,8 +5,8 @@ use common::comm::DataPoint;
 use crate::adc;
 
 
-pub fn serialize_data(data_points: &Vec<DataPoint>) -> Result<Vec<u8>, postcard::Error> {
-    let data_message = DataMessage::Sam(Cow::Borrowed(data_points));
+pub fn serialize_data(board_id: String, data_points: &Vec<DataPoint>) -> Result<Vec<u8>, postcard::Error> {
+    let data_message = DataMessage::Sam(board_id, Cow::Borrowed(data_points));
     let data_serialized = postcard::to_allocvec(&data_message);
     data_serialized
 }
