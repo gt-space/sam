@@ -4,7 +4,7 @@ use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
 use hostname;
 use crate::{discovery::get_ips, 
-            adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC}, 
+            adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC, Measurement}, 
             data::{generate_data_point, serialize_data}, 
             gpio::Gpio};
 use jeflog::{task, pass, fail, warn};
@@ -38,7 +38,7 @@ impl Data {
             state_num: 0,
             curr_measurement: None,
             curr_iteration: 0,
-            data_points: Vec::with_capacity(9),
+            data_points: Vec::with_capacity(60),
             board_id: None,
             gpio_controllers: gpio_controllers
         }
@@ -74,7 +74,7 @@ impl State {
                     .bits_per_word(8)
                     .max_speed_hz(10_000_000)
                     .lsb_first(false)
-                    .mode(SpiModeFlags::SPI_CPHA | SpiModeFlags::SPI_NO_CS)
+                    .mode(SpiModeFlags::SPI_CPHA)
                     .build();
                 spidev.configure(&options).unwrap();
 
@@ -215,24 +215,36 @@ impl State {
 
             State::PollAdcs => {
                 data.data_points.clear();
-                for adc in data.adcs.as_mut().unwrap() {
-                    adc.init_gpio(data.curr_measurement);
-                    data.curr_measurement = Some(adc.measurement);
-                    
-                    // Read ADC
-                    let (raw_value, unix_timestamp) = adc.get_adc_reading(data.curr_iteration);
-
-                    // Write ADC for next iteration
-                    adc.write_iteration(data.curr_iteration);
                 
-                    let data_point = generate_data_point(
-                        raw_value, 
-                        unix_timestamp, 
-                        data.curr_iteration - 1,
-                        adc.measurement.clone(), 
-                    );
+                for i in 1..=6 {
+                    for adc in data.adcs.as_mut().unwrap() {
+                        if (i > 3 && adc.measurement == Measurement::DiffSensors) || 
+                           (i > 2 && (adc.measurement == Measurement::Rtd || adc.measurement == Measurement::IPower)) ||
+                           (i > 5 && adc.measurement == Measurement::VPower) ||
+                           (i > 4 && (adc.measurement == Measurement::Tc1 || adc.measurement == Measurement::Tc2)) {
+                            continue
+                        }
 
-                    data.data_points.push(data_point)
+                        adc.init_gpio(data.curr_measurement);
+                        data.curr_measurement = Some(adc.measurement);
+                        
+                        // Read ADC
+                        let (raw_value, unix_timestamp) = adc.get_adc_reading(data.curr_iteration);
+    
+                        // Write ADC for next iteration
+                        adc.write_iteration(data.curr_iteration);
+                    
+                        let data_point = generate_data_point(
+                            raw_value, 
+                            unix_timestamp, 
+                            data.curr_iteration - 1,
+                            adc.measurement.clone(), 
+                        );
+    
+                        data.data_points.push(data_point)
+                    }
+
+                    data.curr_iteration += 1;
                 }
                 
                 if let Some(board_id) = data.board_id.clone() {
@@ -244,8 +256,6 @@ impl State {
                         .expect("couldn't send data to flight computer");
                     }
                 }
-
-                data.curr_iteration += 1;
 
                 State::PollAdcs
             }
@@ -294,6 +304,7 @@ fn monitor_heartbeat(socket: UdpSocket, gpio_controllers: &Vec<Arc<Gpio>>) {
 
 fn abort(controllers: &Vec<Arc<Gpio>>) {
     fail!("Aborting the SAM Board.");
+    warn!("You must manually restart SAM software.");
 
     let pins = vec![controllers[0].get_pin(8),  // valve 1
                     controllers[2].get_pin(16), // valve 2
