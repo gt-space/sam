@@ -4,7 +4,7 @@ use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
 use hostname;
 use crate::{discovery::get_ips, 
-            adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC}, 
+            adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC, Measurement}, 
             data::{generate_data_point, serialize_data}, 
             gpio::Gpio};
 use jeflog::{task, pass, fail, warn};
@@ -38,7 +38,7 @@ impl Data {
             state_num: 0,
             curr_measurement: None,
             curr_iteration: 0,
-            data_points: Vec::with_capacity(9),
+            data_points: Vec::with_capacity(60),
             board_id: None,
             gpio_controllers: gpio_controllers
         }
@@ -74,7 +74,7 @@ impl State {
                     .bits_per_word(8)
                     .max_speed_hz(10_000_000)
                     .lsb_first(false)
-                    .mode(SpiModeFlags::SPI_CPHA | SpiModeFlags::SPI_NO_CS)
+                    .mode(SpiModeFlags::SPI_CPHA)
                     .build();
                 spidev.configure(&options).unwrap();
 
@@ -215,7 +215,9 @@ impl State {
 
             State::PollAdcs => {
                 data.data_points.clear();
+                
                 for adc in data.adcs.as_mut().unwrap() {
+
                     adc.init_gpio(data.curr_measurement);
                     data.curr_measurement = Some(adc.measurement);
                     
@@ -244,9 +246,7 @@ impl State {
                         .expect("couldn't send data to flight computer");
                     }
                 }
-
                 data.curr_iteration += 1;
-
                 State::PollAdcs
             }
         }
@@ -294,6 +294,7 @@ fn monitor_heartbeat(socket: UdpSocket, gpio_controllers: &Vec<Arc<Gpio>>) {
 
 fn abort(controllers: &Vec<Arc<Gpio>>) {
     fail!("Aborting the SAM Board.");
+    warn!("You must manually restart SAM software.");
 
     let pins = vec![controllers[0].get_pin(8),  // valve 1
                     controllers[2].get_pin(16), // valve 2
