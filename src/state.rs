@@ -216,35 +216,25 @@ impl State {
             State::PollAdcs => {
                 data.data_points.clear();
                 
-                for i in 1..=6 {
-                    for adc in data.adcs.as_mut().unwrap() {
-                        if (i > 3 && adc.measurement == Measurement::DiffSensors) || 
-                           (i > 2 && (adc.measurement == Measurement::Rtd || adc.measurement == Measurement::IPower)) ||
-                           (i > 5 && adc.measurement == Measurement::VPower) ||
-                           (i > 4 && (adc.measurement == Measurement::Tc1 || adc.measurement == Measurement::Tc2)) {
-                            continue
-                        }
+                for adc in data.adcs.as_mut().unwrap() {
 
-                        adc.init_gpio(data.curr_measurement);
-                        data.curr_measurement = Some(adc.measurement);
-                        
-                        // Read ADC
-                        let (raw_value, unix_timestamp) = adc.get_adc_reading(data.curr_iteration);
-    
-                        // Write ADC for next iteration
-                        adc.write_iteration(data.curr_iteration);
+                    adc.init_gpio(data.curr_measurement);
+                    data.curr_measurement = Some(adc.measurement);
                     
-                        let data_point = generate_data_point(
-                            raw_value, 
-                            unix_timestamp, 
-                            data.curr_iteration - 1,
-                            adc.measurement.clone(), 
-                        );
-    
-                        data.data_points.push(data_point)
-                    }
+                    // Read ADC
+                    let (raw_value, unix_timestamp) = adc.get_adc_reading(data.curr_iteration);
 
-                    data.curr_iteration += 1;
+                    // Write ADC for next iteration
+                    adc.write_iteration(data.curr_iteration);
+                
+                    let data_point = generate_data_point(
+                        raw_value, 
+                        unix_timestamp, 
+                        data.curr_iteration - 1,
+                        adc.measurement.clone(), 
+                    );
+
+                    data.data_points.push(data_point)
                 }
                 
                 if let Some(board_id) = data.board_id.clone() {
@@ -256,7 +246,7 @@ impl State {
                         .expect("couldn't send data to flight computer");
                     }
                 }
-
+                data.curr_iteration += 1;
                 State::PollAdcs
             }
         }
