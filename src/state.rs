@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc, thread, time::{Instant, self}};
+use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc, thread, time::Instant};
 use common::comm::{DataPoint, DataMessage};
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
@@ -24,6 +24,7 @@ pub struct Data {
     curr_iteration: u64,
     data_points: Vec<DataPoint>,
     board_id: Option<String>,
+    run_time: Option<Instant>
 }
 
 impl Data {
@@ -38,6 +39,7 @@ impl Data {
             curr_iteration: 0,
             data_points: Vec::with_capacity(9),
             board_id: None,
+            run_time: None
         }
     }
 }
@@ -55,7 +57,8 @@ pub enum State {
 }
 
 impl State {
-    pub fn next(self, data: &mut Data, controllers: &Vec<Arc<Gpio>>) -> State {
+    pub fn next(self, data: &mut Data, controllers: &Vec<Arc<Gpio>>, printing_frequency: u8) -> State {
+
         if data.state_num % 100000 == 0 {
             println!("{:?} {}", self, data.state_num);
         }
@@ -108,7 +111,7 @@ impl State {
 
                 data.board_id = get_board_id();
 
-                State::DeviceDiscovery
+                State::InitAdcs
             }
 
             State::DeviceDiscovery => {
@@ -205,7 +208,10 @@ impl State {
                 data.curr_iteration += 1;
                 
                 pass!("Initialized ADCs");
-                State::Identity
+                if printing_frequency > 0 {
+                    data.run_time = Some(Instant::now());
+                }
+                State::PollAdcs
             }
 
             State::PollAdcs => {
@@ -228,6 +234,19 @@ impl State {
                     );
 
                     data.data_points.push(data_point)
+                }
+
+                if let Some(run_time) = data.run_time {
+                    if run_time.elapsed().as_millis() as f64 >= 1000.0 / (printing_frequency as f64) {
+                        for data_point in &data.data_points {
+                            println!("{} Channel {} {}", data_point.channel_type, data_point.channel, data_point.value);
+                        }
+                        data.run_time = Some(Instant::now());
+                    }
+                }
+
+                if printing_frequency > 0 {
+                    
                 }
                 
                 if let Some(board_id) = data.board_id.clone() {

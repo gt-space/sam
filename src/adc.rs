@@ -109,11 +109,10 @@ impl ADC {
             }
 
             Measurement::Rtd => {
-                self.write_reg(0x03, 0x09);
+                self.write_reg(0x03, 0x0A);
                 self.write_reg(0x04, 0x1E);
-                // self.write_reg(0x06, 0x47);
                 self.write_reg(0x06, 0x07);
-                self.write_reg(0x07, 0x05);
+                self.write_reg(0x07, 0x50);
             }
 
             Measurement::Tc1 | 
@@ -245,8 +244,8 @@ impl ADC {
             }
             Measurement::Rtd => {
                 match iteration % 2 {
-                    0 => { self.write_reg(0x02, 0x12); self.write_reg(0x05, 0x10); } 
-                    1 => { self.write_reg(0x02, 0x34); self.write_reg(0x05, 0x14); } 
+                    0 => { self.write_reg(0x02, 0x12); self.write_reg(0x05, 0x12); } 
+                    1 => { self.write_reg(0x02, 0x34); self.write_reg(0x05, 0x16); } 
                     _ => fail!("Failed register write — could not mod iteration")
                 }
                 self.write_time = time::Instant::now();
@@ -307,8 +306,17 @@ impl ADC {
                 // println!("{:?}: {:?}", (iteration % 2) + 1, reading);
             }
             Measurement::Rtd => {
-                reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 4.0; // 2.5 ref
-                // println!("{:?}: {:?}", (iteration % 2) + 1, reading);
+                let rtd_resistance = ((value as i32 * 2500) as f64) * (1.0 / ((1 << 25) as f64)); // RTD resistance
+                if rtd_resistance <= 100.0 {
+                    reading = 0.0014 * rtd_resistance.powi(2) + 2.2521 * rtd_resistance - 239.04;
+                } else {
+                    reading = 0.0014 * rtd_resistance.powi(2) + 2.1814 * rtd_resistance - 230.07;
+                }
+
+
+                //reading = (value as f64) * (2.5 / ((1 << 15) as f64)) / 4.0; // 2.5 ref
+                println!("RTD {:?}: {:?}", (iteration % 2) + 1, reading);
+
             }
             Measurement::Tc1 | Measurement::Tc2 => {
                 if iteration % 4 == 0 {
