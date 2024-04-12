@@ -25,7 +25,7 @@ pub struct Data {
     curr_iteration: u64,
     data_points: Vec<DataPoint>,
     board_id: Option<String>,
-    gpio_controllers: Vec<Arc<Gpio>>
+    gpio_controllers: Vec<Arc<Gpio>>,
     run_time: Option<Instant>
 }
 
@@ -248,6 +248,7 @@ impl State {
                         for data_point in &data.data_points {
                             println!("{} Channel {} {}", data_point.channel_type, data_point.channel, data_point.value);
                         }
+                        println!();
                         data.run_time = Some(Instant::now());
                     }
                 }
