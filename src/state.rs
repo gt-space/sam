@@ -4,15 +4,16 @@ use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
 use hostname;
 use crate::{discovery::get_ips, 
-            adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC}, 
+            adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC, Measurement}, 
             data::{generate_data_point, serialize_data}, 
-            gpio::Gpio, command};
+            gpio::Gpio};
 use jeflog::{task, pass, fail, warn};
+use crate::gpio::{PinMode::Output, PinValue::Low};
 
 const FC_ADDR: &str = "server-01.local";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
-const FC_HEARTBEAT_TIMEOUT: u128 = 5000;
+const FC_HEARTBEAT_TIMEOUT: u128 = 500;
 
 pub struct Data {
     ip_addresses: HashMap<String, Option<IpAddr>>,
@@ -24,11 +25,12 @@ pub struct Data {
     curr_iteration: u64,
     data_points: Vec<DataPoint>,
     board_id: Option<String>,
+    gpio_controllers: Vec<Arc<Gpio>>
     run_time: Option<Instant>
 }
 
 impl Data {
-    pub fn new() -> Data {
+    pub fn new(gpio_controllers: Vec<Arc<Gpio>>) -> Data {
         Data {
             ip_addresses: HashMap::new(),
             data_socket: UdpSocket::bind(("0.0.0.0", 4573)).expect("Could not bind client socket"),
@@ -37,8 +39,9 @@ impl Data {
             state_num: 0,
             curr_measurement: None,
             curr_iteration: 0,
-            data_points: Vec::with_capacity(9),
+            data_points: Vec::with_capacity(60),
             board_id: None,
+            gpio_controllers: gpio_controllers,
             run_time: None
         }
     }
@@ -53,11 +56,11 @@ pub enum State {
     ConnectToFc,
     Identity,
     InitAdcs,
-    PollAdcs,
+    PollAdcs
 }
 
 impl State {
-    pub fn next(self, data: &mut Data, controllers: &Vec<Arc<Gpio>>, printing_frequency: u8) -> State {
+    pub fn next(self, data: &mut Data, printing_frequency: u8) -> State {
 
         if data.state_num % 100000 == 0 {
             println!("{:?} {}", self, data.state_num);
@@ -74,13 +77,13 @@ impl State {
                     .bits_per_word(8)
                     .max_speed_hz(10_000_000)
                     .lsb_first(false)
-                    .mode(SpiModeFlags::SPI_MODE_1)
+                    .mode(SpiModeFlags::SPI_CPHA)
                     .build();
                 spidev.configure(&options).unwrap();
 
                 let ref_spidev: Rc<_> = Rc::new(spidev);
-                let ref_controllers = Rc::new(gpio_controller_mappings(controllers));
-                let ref_drdy = Rc::new(data_ready_mappings(controllers));
+                let ref_controllers = Rc::new(gpio_controller_mappings(&data.gpio_controllers));
+                let ref_drdy = Rc::new(data_ready_mappings(&data.gpio_controllers));
         
                 let ds = ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
                 let cl = ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
@@ -104,7 +107,7 @@ impl State {
                 adcs.push(tc1);
                 adcs.push(tc2);
 
-                pull_gpios_high(controllers);
+                pull_gpios_high(&data.gpio_controllers);
                 
                 data.adcs = Some(adcs);
                 data.data_socket.set_nonblocking(true).expect("set_nonblocking call failed");
@@ -124,6 +127,7 @@ impl State {
                             State::ConnectToFc
                         },
                         None => {
+                            warn!("Failed to locate the flight computer. Retrying.");
                             State::DeviceDiscovery
                         }
                     }
@@ -173,12 +177,13 @@ impl State {
                                         pass!("Received Identity message from the flight computer, monitoring heartbeat");
     
                                         let socket_copy = data.data_socket.try_clone();
-                                        
+                                        let controllers = data.gpio_controllers.clone();
+
                                         // Spawn heartbeat thread
-                                       thread::spawn(|| {
-                                            monitor_heartbeat(socket_copy.ok().unwrap());
+                                        thread::spawn(move || {
+                                            monitor_heartbeat(socket_copy.ok().unwrap(), &controllers);
                                         });
-    
+
                                         return State::PollAdcs;
                                     },
                                     _ => { warn!("Received unexpected message from the flight computer"); return State::Identity; } ,
@@ -216,7 +221,9 @@ impl State {
 
             State::PollAdcs => {
                 data.data_points.clear();
+                
                 for adc in data.adcs.as_mut().unwrap() {
+
                     adc.init_gpio(data.curr_measurement);
                     data.curr_measurement = Some(adc.measurement);
                     
@@ -258,7 +265,6 @@ impl State {
                         .expect("couldn't send data to flight computer");
                     }
                 }
-
                 data.curr_iteration += 1;
                 State::PollAdcs
             }
@@ -266,7 +272,7 @@ impl State {
     }
 }
 
-fn monitor_heartbeat(socket: UdpSocket) {
+fn monitor_heartbeat(socket: UdpSocket, gpio_controllers: &Vec<Arc<Gpio>>) {
     let mut buf = [0; 65536];
     let mut last_heartbeat = Instant::now();
 
@@ -302,8 +308,24 @@ fn monitor_heartbeat(socket: UdpSocket) {
             }
         }    
     }
+    abort(gpio_controllers);
+}
 
-    command::abort();
+fn abort(controllers: &Vec<Arc<Gpio>>) {
+    fail!("Aborting the SAM Board.");
+    warn!("You must manually restart SAM software.");
+
+    let pins = vec![controllers[0].get_pin(8),  // valve 1
+                    controllers[2].get_pin(16), // valve 2
+                    controllers[2].get_pin(17), // valve 3
+                    controllers[2].get_pin(25), // valve 4
+                    controllers[2].get_pin(1),  // valve 5
+                    controllers[1].get_pin(14)];// valve 6
+
+    for pin in pins.iter() {
+        pin.mode(Output);
+        pin.digital_write(Low);
+    }
 }
 
 fn get_board_id() -> Option<String> {

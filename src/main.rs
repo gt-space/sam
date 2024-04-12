@@ -43,8 +43,8 @@ fn main() {
 
 fn init_state(controllers: Vec<Arc<Gpio>>, printing_frequency: u8) {
     let mut sam_state = state::State::Init;
-    let mut data = state::Data::new();
+    let mut data = state::Data::new(controllers);
     loop {
-        sam_state = sam_state.next(&mut data, &controllers, printing_frequency);
+        sam_state = sam_state.next(&mut data, printing_frequency);
     }
 }

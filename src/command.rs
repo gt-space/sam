@@ -28,7 +28,6 @@ pub fn begin(gpio_controllers: Vec<Arc<Gpio>>) {
 fn execute(command: SamControlMessage, gpio_controllers: Vec<Arc<Gpio>>) {
     match command {
        SamControlMessage::SetLed { channel, on } => {
-            //let led = set_led_command.led.unwrap();
             match on {
                 true => match channel {
                     0 => {
@@ -176,33 +175,4 @@ fn execute(command: SamControlMessage, gpio_controllers: Vec<Arc<Gpio>>) {
 
         }
     }
-}
-
-pub fn abort() {
-    // WARNING: calling this function pulls all valves to their nominal states 
-    fail!("ABORTING!!!!");
-
-    // let valve_1 = gpio_controllers[0].get_pin(8);
-    // valve_1.mode(Output);
-    // valve_1.digital_write(Low);
-
-    // let valve_2 = gpio_controllers[2].get_pin(16);
-    // valve_2.mode(Output);
-    // valve_2.digital_write(Low);
-
-    // let valve_3 = gpio_controllers[2].get_pin(17);
-    // valve_3.mode(Output);
-    // valve_3.digital_write(Low);
-
-    // let valve_4 = gpio_controllers[2].get_pin(25);
-    // valve_4.mode(Output);
-    // valve_4.digital_write(Low);
-
-    // let valve_5 = gpio_controllers[2].get_pin(1);
-    // valve_5.mode(Output);
-    // valve_5.digital_write(Low);
-
-    // let valve_6 = gpio_controllers[1].get_pin(14);
-    // valve_6.mode(Output);
-    // valve_6.digital_write(Low);
 }
