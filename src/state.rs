@@ -1,28 +1,26 @@
-use std::{collections::HashMap, net::{IpAddr, SocketAddr, UdpSocket}, sync::Arc, thread, time::Instant};
+use std::{net::{SocketAddr, UdpSocket}, sync::Arc, thread, time::Instant};
 use common::comm::{DataPoint, DataMessage};
 use spidev::{SpiModeFlags, Spidev, SpidevOptions};
 use std::rc::Rc;
 use hostname;
-use crate::{discovery::get_ips, 
-            adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC, Measurement}, 
+use std::net::ToSocketAddrs;
+use crate::{adc::{self, gpio_controller_mappings, pull_gpios_high, data_ready_mappings, ADC}, 
             data::{generate_data_point, serialize_data}, 
             gpio::Gpio};
 use jeflog::{task, pass, fail, warn};
 use crate::gpio::{PinMode::Output, PinValue::Low};
 
-const FC_ADDR: &str = "server-01.local";
+const FC_ADDR: &str = "server-01";
 const HOSTNAMES: [&str; 1] = [FC_ADDR];
 
 const FC_HEARTBEAT_TIMEOUT: u128 = 500;
 
 pub struct Data {
-    ip_addresses: HashMap<String, Option<IpAddr>>,
     pub data_socket: UdpSocket,
     flight_computer: Option<SocketAddr>,
     adcs: Option<Vec<adc::ADC>>,
     state_num: u32,
     curr_measurement: Option<adc::Measurement>,
-    curr_iteration: u64,
     data_points: Vec<DataPoint>,
     board_id: Option<String>,
     gpio_controllers: Vec<Arc<Gpio>>
@@ -31,13 +29,11 @@ pub struct Data {
 impl Data {
     pub fn new(gpio_controllers: Vec<Arc<Gpio>>) -> Data {
         Data {
-            ip_addresses: HashMap::new(),
             data_socket: UdpSocket::bind(("0.0.0.0", 4573)).expect("Could not bind client socket"),
             flight_computer: None,
             adcs: None,
             state_num: 0,
             curr_measurement: None,
-            curr_iteration: 0,
             data_points: Vec::with_capacity(60),
             board_id: None,
             gpio_controllers: gpio_controllers
@@ -51,7 +47,6 @@ impl Data {
 pub enum State {
     Init,
     DeviceDiscovery,
-    ConnectToFc,
     Identity,
     InitAdcs,
     PollAdcs
@@ -74,7 +69,7 @@ impl State {
                     .bits_per_word(8)
                     .max_speed_hz(10_000_000)
                     .lsb_first(false)
-                    .mode(SpiModeFlags::SPI_CPHA)
+                    .mode(SpiModeFlags::SPI_MODE_1)
                     .build();
                 spidev.configure(&options).unwrap();
 
@@ -82,6 +77,7 @@ impl State {
                 let ref_controllers = Rc::new(gpio_controller_mappings(&data.gpio_controllers));
                 let ref_drdy = Rc::new(data_ready_mappings(&data.gpio_controllers));
         
+                // Instantiate all measurement types
                 let ds = ADC::new(adc::Measurement::DiffSensors, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
                 let cl = ADC::new(adc::Measurement::CurrentLoopPt, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
                 let board_power = ADC::new(adc::Measurement::VPower, ref_spidev.clone(), ref_controllers.clone(), ref_drdy.clone());
@@ -116,32 +112,21 @@ impl State {
 
             State::DeviceDiscovery => {
                 task!("Locating the flight computer.");
-                data.ip_addresses = get_ips(&HOSTNAMES);
-                if let Some(ip) = data.ip_addresses.get(FC_ADDR) {
-                    match ip {
-                        Some(_ipv4_addr) => {
-                            pass!("Found the flight computer at: {}", _ipv4_addr.to_string());
-                            State::ConnectToFc
-                        },
-                        None => {
-                            warn!("Failed to locate the flight computer. Retrying.");
-                            State::DeviceDiscovery
-                        }
-                    }
-                } else {
-                    fail!("Failed to locate the flight computer. Retrying.");
-                    State::DeviceDiscovery
-                }
-            }
-
-            State::ConnectToFc => {
-                let fc_addr = data.ip_addresses.get(FC_ADDR).unwrap().unwrap();
-                let socket_addr = SocketAddr::new(fc_addr, 4573);
                 
-                data.flight_computer = Some(socket_addr);
+                let address = format!("{}.local:4573", FC_ADDR)
+                        .to_socket_addrs()
+                        .ok()
+                        .and_then(|mut addrs| addrs.find(|addr| addr.is_ipv4()));
 
-                task!("Sending Identity messages to the flight computer.");
-                return State::InitAdcs
+                let Some(address) = address else {
+                    fail!("Target \x1b[1m{}\x1b[0m could not be located.", FC_ADDR);
+                    return State::DeviceDiscovery;
+                };
+
+                pass!("Target \x1b[1m{}\x1b[0m located at \x1b[1m{}\x1b[0m.", FC_ADDR, address.ip());
+                data.flight_computer = Some(address);
+
+                State::InitAdcs
             }
 
             State::Identity => {
@@ -205,9 +190,8 @@ impl State {
                     adc.init_regs();
                     adc.start_conversion();
 
-                    adc.write_iteration(data.curr_iteration);
+                    adc.write_iteration(0);
                 }
-                data.curr_iteration += 1;
                 
                 pass!("Initialized ADCs");
                 State::Identity
@@ -216,25 +200,38 @@ impl State {
             State::PollAdcs => {
                 data.data_points.clear();
                 
-                for adc in data.adcs.as_mut().unwrap() {
+                for i in 0..6 {
+                    for adc in data.adcs.as_mut().unwrap() {
+                        if (i > 2 && adc.measurement == adc::Measurement::DiffSensors) || 
+                           (i > 4 && adc.measurement == adc::Measurement::VPower) ||
+                           (i > 1 && (adc.measurement == adc::Measurement::IPower || adc.measurement == adc::Measurement::Rtd)) ||
+                           (i > 3 && (adc.measurement ==  adc::Measurement::Tc1 || adc.measurement ==  adc::Measurement::Tc2)) {
+                            continue;
+                        }
 
-                    adc.init_gpio(data.curr_measurement);
-                    data.curr_measurement = Some(adc.measurement);
-                    
-                    // Read ADC
-                    let (raw_value, unix_timestamp) = adc.get_adc_reading(data.curr_iteration);
+                        adc.init_gpio(data.curr_measurement);
+                        data.curr_measurement = Some(adc.measurement);
+                        
+                        // Read ADC
+                        let (raw_value, unix_timestamp) = adc.get_adc_reading(i);
+                        
+                        // Write ADC for next iteration
+                        adc.write_iteration(i + 1);
+                        
+                        // Don't add ambient temp reading to FC message 
+                        if  i == 0 && (adc.measurement ==  adc::Measurement::Tc1 || adc.measurement ==  adc::Measurement::Tc2) {
+                            continue;
+                        }
 
-                    // Write ADC for next iteration
-                    adc.write_iteration(data.curr_iteration);
-                
-                    let data_point = generate_data_point(
-                        raw_value, 
-                        unix_timestamp, 
-                        data.curr_iteration - 1,
-                        adc.measurement.clone(), 
-                    );
-
-                    data.data_points.push(data_point)
+                        let data_point = generate_data_point(
+                            raw_value, 
+                            unix_timestamp, 
+                            i,
+                            adc.measurement.clone(), 
+                        );
+    
+                        data.data_points.push(data_point)
+                    }
                 }
                 
                 if let Some(board_id) = data.board_id.clone() {
@@ -246,7 +243,6 @@ impl State {
                         .expect("couldn't send data to flight computer");
                     }
                 }
-                data.curr_iteration += 1;
                 State::PollAdcs
             }
         }
@@ -262,10 +258,11 @@ fn monitor_heartbeat(socket: UdpSocket, gpio_controllers: &Vec<Arc<Gpio>>) {
         let time_elapsed = curr_time.duration_since(last_heartbeat).as_millis();
 
         if time_elapsed > FC_HEARTBEAT_TIMEOUT {
+            // Abort system if loss of comms detected 
             break
         }
 
-        // monitor socket for heartbeat messages every ___ MS 
+        // monitor socket for heartbeat messages
         match socket.recv_from(&mut buf) {
             Ok((num_bytes, _src_addr)) => {
                 let deserialized_result = postcard::from_bytes::<DataMessage>(&buf[..num_bytes]);
