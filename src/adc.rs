@@ -187,7 +187,7 @@ impl ADC {
         else {
             self.poll_data_ready();
         }
-        let val = self.test_read_individual(iteration - 1).try_into().unwrap();
+        let val = self.test_read_individual(iteration).try_into().unwrap();
         
         // let start = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         // let unix_timestamp = start.as_secs_f64();
